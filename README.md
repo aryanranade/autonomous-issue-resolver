@@ -7,8 +7,9 @@ This is a portfolio project. The goal is a **citable success-rate number plus a
 thorough failure analysis** on a free, open model — not a state-of-the-art
 score. A modest score is expected and fine.
 
-> **Status:** Phase 0 complete (project skeleton + provider-agnostic LLM
-> client). The agent itself is not built yet. See the [phase plan](#phase-plan).
+> **Status:** Phases 0–1 complete (project skeleton + provider-agnostic LLM
+> client + the five-tool layer with tests). The agent loop is not built yet.
+> See the [phase plan](#phase-plan).
 
 ---
 
@@ -179,9 +180,9 @@ mypy            # static type check
 
 ## Phase plan
 
-- **Phase 0 — ✅ skeleton + provider-agnostic LLM client.** (this phase)
-- **Phase 1 — tool layer** (read_file, list_dir, search_code, edit_file,
-  run_tests) with unit tests against a small dummy repo. No LLM.
+- **Phase 0 — ✅ skeleton + provider-agnostic LLM client.**
+- **Phase 1 — ✅ tool layer** (read_file, list_dir, search_code, edit_file,
+  run_shell, run_tests) with unit tests against a small dummy repo. No LLM.
 - **Phase 2 — agent loop** that plans, chooses tools, and iterates; solve ONE
   hand-picked issue end-to-end.
 - **Phase 3 — Docker sandbox** + SWE-bench Lite task loading/harness.

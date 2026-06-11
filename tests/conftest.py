@@ -2,14 +2,21 @@
 
 We never hit the real Groq API in tests. Instead we build fake OpenAI-SDK-shaped
 response objects with ``types.SimpleNamespace`` and inject a fake client.
+
+This module also provides a small on-disk "dummy repo" and a ToolContext bound
+to it, used by the Phase 1 tool tests.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+from swe_agent.tools.base import ToolContext
+from swe_agent.tools.shell import LocalExecutor
 
 
 def make_completion(
@@ -72,3 +79,62 @@ class FakeOpenAI:
 @pytest.fixture
 def make_completion_fixture():
     return make_completion
+
+
+# --------------------------------------------------------------------------- #
+# Dummy repo + ToolContext fixtures (Phase 1 tool tests)
+# --------------------------------------------------------------------------- #
+
+# A deliberately buggy mini-package: subtract() adds instead of subtracts, so
+# tests/test_ops.py has one passing and one failing test. Lets us exercise
+# read/search/edit and then run_tests going red -> green after a fix.
+_OPS_PY = '''\
+"""Tiny calculator used by the tool tests."""
+
+
+def add(a, b):
+    return a + b
+
+
+def subtract(a, b):
+    return a + b  # BUG: should be a - b
+'''
+
+_TEST_OPS_PY = '''\
+from calculator.ops import add, subtract
+
+
+def test_add():
+    assert add(2, 3) == 5
+
+
+def test_subtract():
+    assert subtract(5, 3) == 2
+'''
+
+
+@pytest.fixture
+def dummy_repo(tmp_path: Path) -> Path:
+    """Build a small repo on disk and return its root path."""
+    pkg = tmp_path / "calculator"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "ops.py").write_text(_OPS_PY)
+
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_ops.py").write_text(_TEST_OPS_PY)
+
+    (tmp_path / "README.md").write_text("# Dummy\nA tiny calculator package.\n")
+    # A directory that searches should skip.
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text("subtract should not be found here")
+    # A binary file searches should skip.
+    (tmp_path / "data.bin").write_bytes(b"\x00\x01subtract\x00\x02")
+    return tmp_path
+
+
+@pytest.fixture
+def tool_ctx(dummy_repo: Path) -> ToolContext:
+    """ToolContext bound to the dummy repo with a real local executor."""
+    return ToolContext(root=dummy_repo, executor=LocalExecutor())
