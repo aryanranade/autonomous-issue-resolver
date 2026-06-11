@@ -1,0 +1,26 @@
+# ──────────────────────────────────────────────────────────────────────────
+#  Application configuration.
+#
+#  CORE DESIGN REQUIREMENT: you can swap the LLM provider/model by editing THIS
+#  file only — no code changes. To move from Groq's free Llama to, say, a
+#  stronger hosted API later, change `provider`, `model`, `base_url`, and
+#  `api_key_env` here.
+#
+#  Secrets (API keys) are NEVER stored here. We store the *name* of the env var
+#  that holds the key (`api_key_env`); the value is read from the environment.
+# ──────────────────────────────────────────────────────────────────────────
+
+[llm]
+provider    = "groq"                    # selects which LLMClient implementation to build
+model       = "llama-3.3-70b-versatile" # model id passed straight to the provider
+api_key_env = "GROQ_API_KEY"            # env var that holds the secret (value never stored here)
+base_url    = "https://api.groq.com/openai/v1"  # OpenAI-compatible endpoint
+temperature = 0.0                       # near-deterministic -> more reproducible benchmark runs
+max_tokens  = 4096
+
+[llm.rate_limit]
+# Free-tier friendliness. See README "Where the rate limits bite".
+delay_between_calls_s = 2.0   # fixed pause after every successful call (throttle req/min)
+max_retries           = 5     # retries on 429 / 5xx / transient network errors
+initial_backoff_s     = 2.0   # first backoff; doubles each retry (exponential)
+max_backoff_s         = 60.0  # cap on any single backoff

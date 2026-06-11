@@ -1,0 +1,33 @@
+[project]
+name = "swe-agent"
+version = "0.0.1"
+description = "Autonomous coding agent that resolves real GitHub issues, benchmarked on SWE-bench Lite."
+requires-python = ">=3.11"
+# Runtime dependencies are deliberately tiny — see README "Dependencies & justification".
+dependencies = [
+    "openai>=1.30",        # OpenAI-compatible HTTP client; talks to Groq via base_url override
+    "python-dotenv>=1.0",  # loads GROQ_API_KEY from a gitignored .env in local dev
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",  # test runner
+    "mypy>=1.10",   # static type checking (we use strict type hints throughout)
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+# Lets tests `import swe_agent` without an editable install.
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src"]
