@@ -24,3 +24,6 @@ delay_between_calls_s = 2.0   # fixed pause after every successful call (throttl
 max_retries           = 5     # retries on 429 / 5xx / transient network errors
 initial_backoff_s     = 2.0   # first backoff; doubles each retry (exponential)
 max_backoff_s         = 60.0  # cap on any single backoff
+
+[agent]
+max_steps = 25   # hard cap on LLM calls per task (bounds cost/time and runaway loops)

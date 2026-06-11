@@ -9,12 +9,14 @@ to it, used by the Phase 1 tool tests.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from swe_agent.llm.base import LLMClient, LLMResponse, Message, ToolCall, ToolSpec, Usage
 from swe_agent.tools.base import ToolContext
 from swe_agent.tools.shell import LocalExecutor
 
@@ -138,3 +140,75 @@ def dummy_repo(tmp_path: Path) -> Path:
 def tool_ctx(dummy_repo: Path) -> ToolContext:
     """ToolContext bound to the dummy repo with a real local executor."""
     return ToolContext(root=dummy_repo, executor=LocalExecutor())
+
+
+@pytest.fixture
+def git_repo(tmp_path: Path) -> Path:
+    """A real git repo with the buggy calculator, committed at a clean baseline.
+
+    Separate from ``dummy_repo`` (which has a *fake* .git for the search test) so
+    patch-capture can be tested against actual ``git diff`` output.
+    """
+    pkg = tmp_path / "calculator"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "ops.py").write_text(_OPS_PY)
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_ops.py").write_text(_TEST_OPS_PY)
+
+    for cmd in (
+        "git init -q",
+        "git add -A",
+        "git -c user.name=t -c user.email=t@t commit -qm baseline",
+    ):
+        subprocess.run(cmd, shell=True, cwd=tmp_path, check=True)
+    return tmp_path
+
+
+# --------------------------------------------------------------------------- #
+# Scripted LLM client (Phase 2 agent-loop tests)
+# --------------------------------------------------------------------------- #
+
+
+def tool_response(name: str, arguments: dict[str, Any], call_id: str = "c") -> LLMResponse:
+    """An LLMResponse that requests a single tool call."""
+    return LLMResponse(
+        content=None,
+        tool_calls=[ToolCall(id=call_id, name=name, arguments=arguments)],
+        finish_reason="tool_calls",
+        usage=Usage(),
+    )
+
+
+def text_response(text: str) -> LLMResponse:
+    """An LLMResponse with plain text and no tool calls."""
+    return LLMResponse(content=text, tool_calls=[], finish_reason="stop", usage=Usage())
+
+
+class ScriptedLLMClient(LLMClient):
+    """LLMClient that replays a fixed list of responses, for deterministic tests.
+
+    Once the scripted list is exhausted it returns ``default`` repeatedly (used
+    to simulate a model that never stops). Records the messages seen on each call.
+    """
+
+    def __init__(
+        self, responses: list[LLMResponse], default: LLMResponse | None = None
+    ) -> None:
+        self._responses = list(responses)
+        self._default = default
+        self.calls: list[list[Message]] = []
+
+    def complete(
+        self,
+        messages: list[Message],
+        tools: list[ToolSpec] | None = None,
+        **overrides: Any,
+    ) -> LLMResponse:
+        self.calls.append(list(messages))
+        if self._responses:
+            return self._responses.pop(0)
+        if self._default is not None:
+            return self._default
+        raise AssertionError("ScriptedLLMClient ran out of responses")

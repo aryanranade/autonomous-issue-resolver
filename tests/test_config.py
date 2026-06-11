@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from swe_agent.config import LLMConfig, load_config
+from swe_agent.config import AgentConfig, LLMConfig, load_agent_config, load_config
 
 SAMPLE = """\
 [llm]
@@ -68,3 +68,18 @@ def test_repr_hides_secret(config_file: Path, monkeypatch: pytest.MonkeyPatch) -
     cfg = load_config(config_file)
     assert "secret-123" not in repr(cfg)
     assert "api_key=***" in repr(cfg)
+
+
+def test_load_agent_config_reads_max_steps(tmp_path: Path) -> None:
+    p = tmp_path / "config.toml"
+    p.write_text("[agent]\nmax_steps = 7\n")
+    cfg = load_agent_config(p)
+    assert isinstance(cfg, AgentConfig)
+    assert cfg.max_steps == 7
+
+
+def test_load_agent_config_defaults_when_section_missing(tmp_path: Path) -> None:
+    p = tmp_path / "config.toml"
+    p.write_text("[llm]\nprovider='groq'\nmodel='m'\n")
+    cfg = load_agent_config(p)
+    assert cfg.max_steps == 25  # default

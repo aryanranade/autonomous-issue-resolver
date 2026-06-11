@@ -29,6 +29,13 @@ class RateLimitConfig:
 
 
 @dataclass(frozen=True)
+class AgentConfig:
+    """Settings for the agent loop (read from the ``[agent]`` table)."""
+
+    max_steps: int = 25
+
+
+@dataclass(frozen=True)
 class LLMConfig:
     """Everything needed to construct and drive an :class:`LLMClient`."""
 
@@ -94,3 +101,16 @@ def load_config(
             max_backoff_s=rl.get("max_backoff_s", 60.0),
         ),
     )
+
+
+def load_agent_config(path: Path | None = None) -> AgentConfig:
+    """Load :class:`AgentConfig` from the ``[agent]`` table of the TOML file.
+
+    Separate from :func:`load_config` so the agent settings can be read without
+    requiring an API key (e.g. in tests).
+    """
+    path = path or DEFAULT_CONFIG_PATH
+    with path.open("rb") as fh:
+        raw = tomllib.load(fh)
+    agent = raw.get("agent", {})
+    return AgentConfig(max_steps=agent.get("max_steps", 25))

@@ -7,8 +7,9 @@ This is a portfolio project. The goal is a **citable success-rate number plus a
 thorough failure analysis** on a free, open model — not a state-of-the-art
 score. A modest score is expected and fine.
 
-> **Status:** Phases 0–1 complete (project skeleton + provider-agnostic LLM
-> client + the five-tool layer with tests). The agent loop is not built yet.
+> **Status:** Phases 0–2 complete (skeleton + provider-agnostic LLM client +
+> five-tool layer + the agent loop with a CLI). It can resolve an issue in a
+> local repo end-to-end. Docker sandbox and SWE-bench harness are next.
 > See the [phase plan](#phase-plan).
 
 ---
@@ -176,6 +177,22 @@ pytest          # run the suite (no network/API key needed — LLM tests use fak
 mypy            # static type check
 ```
 
+## Running the agent
+
+Set your key (`cp .env.example .env` and fill it in, or `export GROQ_API_KEY=...`),
+then point the agent at a local git repository and describe the issue:
+
+```bash
+python -m swe_agent.agent.cli --repo ./path/to/repo \
+    --issue "subtract(5, 3) returns 8 but should return 2"
+# or:  --issue-file bug.txt    --max-steps 15
+```
+
+It streams each tool call as it happens, then prints the diff it produced. The
+repo should be a git repository so the agent can capture the change as a patch
+(it excludes build artifacts like `__pycache__`). There is still **no
+sandboxing** — commands run on the host until the Phase 3 Docker executor lands.
+
 ---
 
 ## Phase plan
@@ -183,8 +200,8 @@ mypy            # static type check
 - **Phase 0 — ✅ skeleton + provider-agnostic LLM client.**
 - **Phase 1 — ✅ tool layer** (read_file, list_dir, search_code, edit_file,
   run_shell, run_tests) with unit tests against a small dummy repo. No LLM.
-- **Phase 2 — agent loop** that plans, chooses tools, and iterates; solve ONE
-  hand-picked issue end-to-end.
+- **Phase 2 — ✅ agent loop** that plans (record_plan), chooses tools, iterates,
+  and finishes; CLI entry point; verified end-to-end on a local repo.
 - **Phase 3 — Docker sandbox** + SWE-bench Lite task loading/harness.
 - **Phase 4 — evaluation runner** scoring a batch, logging structured
   pass/fail + reason; easy to run on a 3–5 task subset first.
