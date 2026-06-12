@@ -7,6 +7,7 @@ helpers so filesystem tools can't escape the repository.
 
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -67,6 +68,10 @@ class ToolContext:
     root: Path
     executor: CommandExecutor
     max_output_chars: int = 10_000  # token-budget guard on any single tool output
+    # Interpreter run_tests invokes pytest with. Defaults to this host's Python;
+    # inside a SWE-bench container it's "python" (the activated conda env), since
+    # the host's interpreter path doesn't exist there.
+    python_executable: str = sys.executable
 
 
 class Tool(ABC):

@@ -8,6 +8,7 @@ dependencies = [
     "openai>=1.30",        # OpenAI-compatible HTTP client; talks to Groq via base_url override
     "python-dotenv>=1.0",  # loads GROQ_API_KEY from a gitignored .env in local dev
     "datasets>=2.16",      # loads the SWE-bench Lite task set from the Hugging Face hub
+    "swebench>=4.1,<5",    # authoritative instance image names, eval scripts, and official grader (Phase 3c)
 ]
 
 [project.optional-dependencies]

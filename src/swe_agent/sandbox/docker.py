@@ -102,14 +102,23 @@ class DockerSandbox:
         return self.container_id
 
     def exec(
-        self, command: str, *, workdir: str | None = None, timeout: int = 300
+        self,
+        command: str,
+        *,
+        workdir: str | None = None,
+        timeout: int = 300,
+        shell: str = "sh",
     ) -> ExecResult:
-        """Run ``command`` (via ``sh -c``) inside the container."""
+        """Run ``command`` (via ``<shell> -c``) inside the container.
+
+        ``shell`` defaults to ``sh``; pass ``bash`` for commands that need bash
+        features such as ``source`` (e.g. activating a conda env).
+        """
         if self.container_id is None:
             raise DockerError("sandbox not started; call start() first")
         args = [
             _DOCKER, "exec", "-w", workdir or self.workdir,
-            self.container_id, "sh", "-c", command,
+            self.container_id, shell, "-c", command,
         ]
         try:
             proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
@@ -160,11 +169,29 @@ class DockerExecutor(CommandExecutor):
     The host ``cwd`` argument is intentionally ignored: the repository lives at
     a fixed path inside the container, so all commands run in the sandbox's
     workdir.
+
+    ``command_prefix`` is prepended (``<prefix> && <command>``) to every command.
+    Phase 3c uses it to activate the SWE-bench image's conda env so ``python`` /
+    ``pytest`` resolve to the task's environment rather than the bare container's.
     """
 
-    def __init__(self, sandbox: DockerSandbox, *, workdir: str | None = None) -> None:
+    def __init__(
+        self,
+        sandbox: DockerSandbox,
+        *,
+        workdir: str | None = None,
+        command_prefix: str | None = None,
+    ) -> None:
         self._sandbox = sandbox
         self._workdir = workdir or sandbox.workdir
+        self._command_prefix = command_prefix
 
     def run(self, command: str, *, cwd: Path, timeout: int) -> ExecResult:
+        if self._command_prefix:
+            # The prefix (conda activation) uses bash-only `source`, so the whole
+            # command must run under bash rather than the default sh.
+            command = f"{self._command_prefix} && {command}"
+            return self._sandbox.exec(
+                command, workdir=self._workdir, timeout=timeout, shell="bash"
+            )
         return self._sandbox.exec(command, workdir=self._workdir, timeout=timeout)

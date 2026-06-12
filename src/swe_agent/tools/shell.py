@@ -10,7 +10,6 @@ Phase 1 testing drives it with controlled commands against a temp directory.
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -144,9 +143,10 @@ class RunTests(Tool):
         if not isinstance(target, str):
             return ToolResult.error("argument 'target' must be a string")
         timeout = min(int(args.get("timeout", 300)), _MAX_TIMEOUT_S)
-        # Use the running interpreter so the right venv/pytest is selected,
-        # regardless of what "python" resolves to on PATH.
-        command = f"{sys.executable} -m pytest -q"
+        # Use the configured interpreter so the right venv/pytest is selected.
+        # On the host this is sys.executable; in a container it's the activated
+        # conda env's "python" (see ToolContext.python_executable).
+        command = f"{ctx.python_executable} -m pytest -q"
         if target.strip():
             command += f" {target.strip()}"
         result = ctx.executor.run(command, cwd=ctx.root, timeout=timeout)
