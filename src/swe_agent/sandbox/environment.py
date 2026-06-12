@@ -62,6 +62,21 @@ def _instance_to_row(instance: SWEBenchInstance) -> dict[str, Any]:
     }
 
 
+def make_spec(instance: SWEBenchInstance) -> Any:
+    """Return swebench's ``TestSpec`` for an instance.
+
+    The TestSpec carries the image keys, the eval script, and the gold test
+    lists. Both provisioning (image name) and grading (eval script + parser)
+    rely on it, so it's the single authoritative bridge to swebench. Returns
+    ``Any`` because swebench ships no type stubs.
+    """
+    from swebench.harness.test_spec.test_spec import (  # type: ignore[import-untyped]
+        make_test_spec,
+    )
+
+    return make_test_spec(_instance_to_row(instance), namespace="swebench")
+
+
 def instance_image_ref(instance: SWEBenchInstance) -> str:
     """Return the pullable Docker image for an instance (x86_64, swebench namespace).
 
@@ -72,12 +87,7 @@ def instance_image_ref(instance: SWEBenchInstance) -> str:
     so we ask it rather than format the string ourselves — robust to scheme
     changes and guaranteed to match the images actually published on Docker Hub.
     """
-    from swebench.harness.test_spec.test_spec import (  # type: ignore[import-untyped]
-        make_test_spec,
-    )
-
-    spec = make_test_spec(_instance_to_row(instance), namespace="swebench")
-    return str(spec.instance_image_key)
+    return str(make_spec(instance).instance_image_key)
 
 
 class SWEBenchEnvironment:

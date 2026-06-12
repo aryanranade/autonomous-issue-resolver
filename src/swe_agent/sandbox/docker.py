@@ -144,6 +144,21 @@ class DockerSandbox:
         if proc.returncode != 0:
             raise DockerError(f"docker cp failed: {proc.stderr.strip()}")
 
+    def copy_in(self, host_src: Path | str, container_dest: str) -> None:
+        """Copy a host path into the container (``docker cp``).
+
+        Used by grading to drop the model patch and eval script into the
+        container before running the official evaluation.
+        """
+        if self.container_id is None:
+            raise DockerError("sandbox not started; call start() first")
+        proc = subprocess.run(
+            [_DOCKER, "cp", str(host_src), f"{self.container_id}:{container_dest}"],
+            capture_output=True, text=True, timeout=300,
+        )
+        if proc.returncode != 0:
+            raise DockerError(f"docker cp (in) failed: {proc.stderr.strip()}")
+
     def stop(self) -> None:
         """Force-remove the container. Safe to call multiple times."""
         if self.container_id is None:
