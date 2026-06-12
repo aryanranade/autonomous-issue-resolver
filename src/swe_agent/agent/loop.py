@@ -93,11 +93,23 @@ class Agent:
         tool_records: list[ToolCallRecord] = []
         finished = False
         stop_reason = StopReason.MAX_STEPS  # default if we exhaust the budget
+        error: str | None = None
         steps = 0
 
         while steps < self._config.max_steps:
             steps += 1
-            resp = self._llm.complete(messages, tools=self._specs)
+            try:
+                resp = self._llm.complete(messages, tools=self._specs)
+            except Exception as exc:  # noqa: BLE001 — terminal LLM failure ends the run
+                # The LLM is unavailable (quota exhausted after retries, network,
+                # auth). End cleanly with ERROR rather than crashing — a batch run
+                # must survive one instance dying, and any edits made so far are
+                # still captured as a patch below.
+                error = f"{type(exc).__name__}: {exc}"
+                stop_reason = StopReason.ERROR
+                logger.warning("LLM call failed at step %d; ending run: %s", steps, error)
+                report(f"[step {steps}] LLM error, ending run: {str(exc)[:200]}")
+                break
             messages.append(
                 Message(
                     role="assistant",
@@ -173,6 +185,7 @@ class Agent:
             patch=patch,
             tool_calls=tool_records,
             transcript=messages,
+            error=error,
         )
 
     def _compute_patch(self) -> str:

@@ -74,6 +74,8 @@ def main(argv: list[str] | None = None) -> int:
     g = outcome.grade
     print("\n" + "=" * 60)
     print(f"stop reason  : {agent_result.stop_reason.value}")
+    if agent_result.error:
+        print(f"agent error  : {agent_result.error}")
     print(f"steps used   : {agent_result.steps}")
     print(f"patch        : {len(agent_result.patch.splitlines())} diff lines")
     print(f"patch applied: {g.patch_applied}")

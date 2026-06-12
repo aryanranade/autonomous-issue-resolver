@@ -101,9 +101,14 @@ class GroqClient(LLMClient):
         """
         self._config = config
         self._sleep = sleep
+        # The SDK's own retry layer is the first line of defence against 429s and
+        # honours Groq's Retry-After header (better than blind backoff). We set it
+        # from config so it isn't the SDK default of 2; retry_with_backoff below
+        # is the outer safety net if the SDK still gives up.
         self._client = client or OpenAI(
             api_key=config.api_key,
             base_url=config.base_url,
+            max_retries=config.rate_limit.max_retries,
         )
 
     def complete(

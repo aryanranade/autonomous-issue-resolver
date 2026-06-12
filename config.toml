@@ -20,8 +20,8 @@ max_tokens  = 4096
 
 [llm.rate_limit]
 # Free-tier friendliness. See README "Where the rate limits bite".
-delay_between_calls_s = 2.0   # fixed pause after every successful call (throttle req/min)
-max_retries           = 5     # retries on 429 / 5xx / transient network errors
+delay_between_calls_s = 3.0   # fixed pause after every successful call (eases req/min + tokens/min)
+max_retries           = 6     # retries on 429 / 5xx / net errors; also configures the SDK's own retry layer
 initial_backoff_s     = 2.0   # first backoff; doubles each retry (exponential)
 max_backoff_s         = 60.0  # cap on any single backoff
 

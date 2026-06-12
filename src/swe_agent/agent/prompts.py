@@ -22,15 +22,22 @@ You act only by calling tools. Follow this workflow:
    the file(s) you will change, and your approach. Do this before any edit.
 3. FIX — Use edit_file to make the smallest change that resolves the issue.
    Keep existing behavior and style intact everywhere else.
-4. VERIFY — Use run_tests to confirm the fix works and breaks nothing else. If a
-   test fails, read the output and iterate.
-5. FINISH — When the relevant tests pass, call finish with a short summary.
+4. VERIFY — After editing, use run_tests to check for regressions, not just your
+   one case. Run the WHOLE test file(s) covering the code you changed (e.g. if
+   you edited foo/bar.py, run the entire tests/test_bar.py), and ideally the
+   surrounding test directory. A change that makes a previously-passing test
+   fail is a broken fix — read the failure and narrow or rethink your edit.
+5. FINISH — Only call finish once run_tests shows BOTH that the issue is fixed
+   AND that no test which passed before your change now fails.
 
 Rules:
-- Prefer small, targeted edits over rewrites.
+- Prefer small, targeted edits over rewrites. The narrowest change that resolves
+  the issue is almost always the right one.
+- Breaking existing, previously-passing tests is a FAILED fix — graders count
+  regressions against you. When in doubt, scope your change more tightly.
 - edit_file needs an exact old_string that occurs once in the file — include
   enough surrounding context to make it unique.
-- Always investigate before editing and verify after editing.
+- Always investigate before editing, and run the broad tests after editing.
 - If an approach fails, rethink it rather than repeating the same action.
 - Your step budget is limited; be efficient.
 """
@@ -82,7 +89,8 @@ RECORD_PLAN_SPEC = ToolSpec(
 FINISH_SPEC = ToolSpec(
     name="finish",
     description=(
-        "Call when the issue is fixed and the relevant tests pass. Ends the run."
+        "Call only after run_tests confirms the issue is fixed AND no previously "
+        "passing test now fails. Ends the run."
     ),
     parameters={
         "type": "object",

@@ -54,6 +54,9 @@ class AgentResult:
     patch: str
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     transcript: list[Message] = field(default_factory=list)
+    # Set when stop_reason is ERROR — e.g. the LLM became unavailable (quota
+    # exhausted, network) and the run ended early. None on normal runs.
+    error: str | None = None
 
     @property
     def made_changes(self) -> bool:

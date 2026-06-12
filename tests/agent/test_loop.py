@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from swe_agent.agent.loop import Agent
 from swe_agent.agent.result import StopReason
 from swe_agent.config import AgentConfig
+from swe_agent.llm.base import LLMClient, LLMResponse, Message, ToolSpec
 from swe_agent.task import Task
 from swe_agent.tools.base import ToolContext
 from swe_agent.tools.registry import default_registry
@@ -147,6 +150,54 @@ def test_patch_captures_source_change_excluding_pycache(git_repo) -> None:
     # build artifacts from running tests must NOT appear in the patch
     assert "__pycache__" not in result.patch
     assert ".pyc" not in result.patch
+
+
+class _FailingLLMClient(LLMClient):
+    """Replays scripted responses, then raises — simulates the LLM dying mid-run."""
+
+    def __init__(self, responses: list[LLMResponse], exc: Exception) -> None:
+        self._responses = list(responses)
+        self._exc = exc
+
+    def complete(
+        self,
+        messages: list[Message],
+        tools: list[ToolSpec] | None = None,
+        **overrides: Any,
+    ) -> LLMResponse:
+        if self._responses:
+            return self._responses.pop(0)
+        raise self._exc
+
+
+def test_llm_failure_ends_run_with_error(tool_ctx: ToolContext) -> None:
+    # A quota-exhausted / unavailable LLM must not crash the loop.
+    client = _FailingLLMClient([], RuntimeError("boom: tokens-per-day exhausted"))
+    result = _agent(client, tool_ctx, max_steps=5).run(
+        Task(id="e1", problem_statement="x")
+    )
+    assert result.finished is False
+    assert result.stop_reason is StopReason.ERROR
+    assert result.error is not None and "boom" in result.error
+    assert result.steps == 1  # failed on the very first LLM call
+
+
+def test_llm_failure_after_edit_still_captures_partial_patch(git_repo) -> None:
+    from swe_agent.tools.shell import LocalExecutor
+
+    ctx = ToolContext(root=git_repo, executor=LocalExecutor())
+    # Make a real edit, then the next LLM call dies.
+    client = _FailingLLMClient(
+        [tool_response("edit_file", FIX_ARGS)],
+        RuntimeError("network down"),
+    )
+    result = _agent(client, ctx).run(Task(id="e2", problem_statement="x"))
+
+    assert result.stop_reason is StopReason.ERROR
+    assert result.error is not None
+    # The edit made before the failure is still captured for grading.
+    assert result.made_changes
+    assert "return a - b" in result.patch
 
 
 def test_transcript_threads_tool_results_to_each_call(tool_ctx: ToolContext) -> None:
