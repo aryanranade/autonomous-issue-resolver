@@ -109,6 +109,29 @@ def test_format_report_contains_headline_numbers() -> None:
     assert "acme__widget-1" in text
 
 
+def test_analyze_cli_writes_report_and_exits_zero(tmp_path: Path) -> None:
+    from swe_agent.eval.analyze_cli import main
+
+    (tmp_path / "a.json").write_text(json.dumps(_rec(instance_id="a")))
+    (tmp_path / "b.json").write_text(
+        json.dumps(_rec(instance_id="b", resolved=False, status="empty_patch", patch=""))
+    )
+    out = tmp_path / "report.md"
+
+    code = main(["--results-dir", str(tmp_path), "--out", str(out)])
+
+    assert code == 0
+    text = out.read_text()
+    assert "Resolved: **1**" in text  # 1 of 2
+    assert "no_patch" in text
+
+
+def test_analyze_cli_errors_on_empty_dir(tmp_path: Path) -> None:
+    from swe_agent.eval.analyze_cli import main
+
+    assert main(["--results-dir", str(tmp_path)]) == 2  # no records
+
+
 def test_load_records_reads_dir_and_skips_report(tmp_path: Path) -> None:
     (tmp_path / "a.json").write_text(json.dumps(_rec(instance_id="a")))
     (tmp_path / "b.json").write_text(json.dumps(_rec(instance_id="b")))

@@ -11,10 +11,13 @@ daemon. The instance image is pulled on first use (multi-GB), then cached.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from pathlib import Path
 
 from swe_agent.config import load_agent_config, load_config
 from swe_agent.dataset import load_swebench_lite
+from swe_agent.eval.batch import outcome_to_record
 from swe_agent.eval.runner import solve_and_grade
 from swe_agent.llm.factory import build_llm_client
 
@@ -28,6 +31,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-steps", type=int, help="Override config max_steps.")
     parser.add_argument(
         "--eval-timeout", type=int, default=1800, help="Eval-script timeout (s)."
+    )
+    parser.add_argument(
+        "--results-dir",
+        type=Path,
+        help="If set, also write a <instance_id>.json record here (for analyze_cli).",
     )
     return parser.parse_args(argv)
 
@@ -90,6 +98,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"RESOLVED     : {g.resolved}")
     print("=" * 60)
+
+    if args.results_dir is not None:
+        args.results_dir.mkdir(parents=True, exist_ok=True)
+        path = args.results_dir / f"{instance.instance_id}.json"
+        record = outcome_to_record(outcome, instance.repo)
+        path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        print(f"(record written to {path})")
+
     return 0 if g.resolved else 1
 
 
