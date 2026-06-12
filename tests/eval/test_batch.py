@@ -119,6 +119,28 @@ def test_run_batch_resumes_skipping_existing(tmp_path: Path) -> None:
     assert summary.resolved == 1  # the pre-seeded a-1 counts
 
 
+def test_run_batch_reruns_error_records_on_resume(tmp_path: Path) -> None:
+    # A quota-killed (llm_error) record must be RETRIED on resume, not skipped —
+    # otherwise the instance that tripped the daily cap is skipped forever.
+    (tmp_path / "a-1.json").write_text(
+        json.dumps({
+            "instance_id": "a-1", "repo": "acme/widget", "resolved": False,
+            "status": "empty_patch", "error": "RateLimitError: tokens per day",
+        })
+    )
+    called: list[str] = []
+
+    def solve(instance: SWEBenchInstance) -> InstanceOutcome:
+        called.append(instance.instance_id)
+        return _outcome(instance.instance_id, resolved=True, status="RESOLVED_FULL")
+
+    summary = run_batch([_inst("a-1")], solve, results_dir=tmp_path)
+
+    assert called == ["a-1"]  # re-ran despite the existing error record
+    assert summary.resolved == 1
+    assert json.loads((tmp_path / "a-1.json").read_text())["resolved"] is True
+
+
 def test_run_batch_aborts_on_rate_limit(tmp_path: Path) -> None:
     instances = [_inst("a-1"), _inst("b-2"), _inst("c-3")]
     table = {

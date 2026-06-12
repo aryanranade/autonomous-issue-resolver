@@ -50,6 +50,29 @@ def _is_rate_limited(error: str | None) -> bool:
     return any(marker in low for marker in _RATE_LIMIT_MARKERS)
 
 
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return data
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _is_fair_attempt(record: dict[str, Any]) -> bool:
+    """True if an existing record is a real graded attempt (so resume skips it).
+
+    Error records — the agent's LLM died mid-run (e.g. quota) or solve/grade
+    crashed — are NOT fair attempts: they should be retried on resume, not
+    skipped. This is what lets a token-exhausted batch actually finish later
+    (otherwise the instance that tripped the daily cap would be skipped forever).
+    """
+    if not record:
+        return False
+    if record.get("status") == "run_error" or record.get("error"):
+        return False
+    return True
+
+
 def outcome_to_record(outcome: InstanceOutcome, repo: str) -> dict[str, Any]:
     """A compact, JSON-safe record of one attempt, tuned for Phase 5 analysis.
 
@@ -179,7 +202,7 @@ def run_batch(
         path = results_dir / f"{instance.instance_id}.json"
         prefix = f"[{index}/{total}] {instance.instance_id}"
 
-        if path.exists():
+        if path.exists() and _is_fair_attempt(_read_json(path)):
             report(f"{prefix}: already done, skipping")
             continue
         if aborted:
