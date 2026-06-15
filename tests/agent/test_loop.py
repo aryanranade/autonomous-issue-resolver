@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from swe_agent.agent.loop import Agent
+from swe_agent.agent.loop import MAX_TOOL_CALL_RETRIES, Agent
 from swe_agent.agent.result import StopReason
 from swe_agent.config import AgentConfig
-from swe_agent.llm.base import LLMClient, LLMResponse, Message, ToolSpec
+from swe_agent.llm.base import (
+    LLMClient,
+    LLMResponse,
+    Message,
+    ToolCallValidationError,
+    ToolSpec,
+)
 from swe_agent.task import Task
 from swe_agent.tools.base import ToolContext
 from swe_agent.tools.registry import default_registry
@@ -198,6 +204,56 @@ def test_llm_failure_after_edit_still_captures_partial_patch(git_repo) -> None:
     # The edit made before the failure is still captured for grading.
     assert result.made_changes
     assert "return a - b" in result.patch
+
+
+class _ScriptedWithErrors(LLMClient):
+    """Replays a list where each item is either an LLMResponse or an exception."""
+
+    def __init__(self, actions: list[object]) -> None:
+        self._actions = list(actions)
+
+    def complete(
+        self,
+        messages: list[Message],
+        tools: list[ToolSpec] | None = None,
+        **overrides: object,
+    ) -> LLMResponse:
+        action = self._actions.pop(0)
+        if isinstance(action, BaseException):
+            raise action
+        assert isinstance(action, LLMResponse)
+        return action
+
+
+def test_recovers_from_rejected_tool_call(tool_ctx: ToolContext) -> None:
+    # A rejected tool call (bad arg type) is fed back, and the model retries.
+    client = _ScriptedWithErrors([
+        ToolCallValidationError("/timeout: expected integer, but got string"),
+        tool_response("finish", {"summary": "done after retry"}),
+    ])
+    result = _agent(client, tool_ctx, max_steps=5).run(
+        Task(id="r1", problem_statement="x")
+    )
+    assert result.finished is True
+    assert result.stop_reason is StopReason.FINISHED
+    assert result.steps == 2  # rejected call, then the successful finish
+    # the loop injected a corrective message before the retry
+    assert any(
+        m.role == "user" and "rejected" in (m.content or "")
+        for m in result.transcript
+    )
+
+
+def test_gives_up_after_too_many_rejected_tool_calls(tool_ctx: ToolContext) -> None:
+    client = _ScriptedWithErrors(
+        [ToolCallValidationError("bad arg")] * (MAX_TOOL_CALL_RETRIES + 1)
+    )
+    result = _agent(client, tool_ctx, max_steps=20).run(
+        Task(id="r2", problem_statement="x")
+    )
+    assert result.finished is False
+    assert result.stop_reason is StopReason.ERROR
+    assert result.error is not None and "invalid tool calls" in result.error
 
 
 def test_transcript_threads_tool_results_to_each_call(tool_ctx: ToolContext) -> None:

@@ -24,12 +24,16 @@ from swe_agent.agent.result import (
     ToolCallRecord,
 )
 from swe_agent.config import AgentConfig
-from swe_agent.llm.base import LLMClient, Message
+from swe_agent.llm.base import LLMClient, Message, ToolCallValidationError
 from swe_agent.task import Task
 from swe_agent.tools.base import ToolContext
 from swe_agent.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+# Give the model a few chances to fix a rejected tool call before giving up,
+# so one malformed argument can't burn the whole step budget on retries.
+MAX_TOOL_CALL_RETRIES = 4
 
 # A no-op reporter; the CLI passes ``print`` to stream progress.
 Reporter = Callable[[str], None]
@@ -96,6 +100,7 @@ class Agent:
         stop_reason = StopReason.MAX_STEPS  # default if we exhaust the budget
         error: str | None = None
         steps = 0
+        tool_call_retries = 0  # consecutive rejected tool calls
 
         while steps < self._config.max_steps:
             steps += 1
@@ -108,6 +113,29 @@ class Agent:
                     ),
                     tools=self._specs,
                 )
+            except ToolCallValidationError as exc:
+                # The provider rejected the model's tool call (bad arg types).
+                # Recoverable: feed it back and let the model retry, unless it
+                # keeps failing — then give up so we don't burn the budget.
+                tool_call_retries += 1
+                report(f"[step {steps}] tool call rejected, asking model to retry")
+                if tool_call_retries > MAX_TOOL_CALL_RETRIES:
+                    error = f"too many invalid tool calls: {exc}"
+                    stop_reason = StopReason.ERROR
+                    logger.warning("giving up after %d rejected tool calls", tool_call_retries)
+                    break
+                messages.append(
+                    Message(
+                        role="user",
+                        content=(
+                            "Your last tool call was rejected because its arguments "
+                            f"did not match the tool's schema: {exc}. Call the tool "
+                            "again with correctly typed JSON arguments — for example, "
+                            'pass numbers as integers (300), not strings ("300").'
+                        ),
+                    )
+                )
+                continue
             except Exception as exc:  # noqa: BLE001 — terminal LLM failure ends the run
                 # The LLM is unavailable (quota exhausted after retries, network,
                 # auth). End cleanly with ERROR rather than crashing — a batch run
@@ -118,6 +146,8 @@ class Agent:
                 logger.warning("LLM call failed at step %d; ending run: %s", steps, error)
                 report(f"[step {steps}] LLM error, ending run: {str(exc)[:200]}")
                 break
+
+            tool_call_retries = 0  # a completion came back; reset the counter
             messages.append(
                 Message(
                     role="assistant",

@@ -17,6 +17,21 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+class LLMError(Exception):
+    """Base class for errors surfaced by an :class:`LLMClient`."""
+
+
+class ToolCallValidationError(LLMError):
+    """The provider rejected the model's tool call (e.g. a bad argument type).
+
+    Recoverable, unlike quota/auth/network failures: the agent loop can feed the
+    message back and let the model re-issue the call with correct arguments,
+    rather than ending the run. Providers like Groq validate tool calls
+    server-side and return HTTP 400 when a weak model emits, say, ``"300"`` where
+    the schema wants the integer ``300``.
+    """
+
+
 @dataclass
 class ToolSpec:
     """Declaration of a tool the model is allowed to call.

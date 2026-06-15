@@ -18,6 +18,7 @@ from typing import Any
 from openai import (
     APIConnectionError,
     APITimeoutError,
+    BadRequestError,
     InternalServerError,
     OpenAI,
     RateLimitError,
@@ -29,6 +30,7 @@ from swe_agent.llm.base import (
     LLMResponse,
     Message,
     ToolCall,
+    ToolCallValidationError,
     ToolSpec,
     Usage,
 )
@@ -44,6 +46,14 @@ _RETRYABLE: tuple[type[BaseException], ...] = (
     APIConnectionError,
     InternalServerError,  # HTTP 5xx
 )
+
+
+def _is_tool_validation_error(exc: BadRequestError) -> bool:
+    """True if a 400 is Groq rejecting the model's tool call (recoverable)."""
+    if getattr(exc, "code", None) == "tool_use_failed":
+        return True
+    text = str(exc)
+    return "tool_use_failed" in text or "tool call validation failed" in text
 
 
 def _message_to_dict(m: Message) -> dict[str, Any]:
@@ -129,14 +139,22 @@ class GroqClient(LLMClient):
             payload["tool_choice"] = overrides.get("tool_choice", "auto")
 
         rl = cfg.rate_limit
-        completion = retry_with_backoff(
-            lambda: self._client.chat.completions.create(**payload),
-            retry_on=_RETRYABLE,
-            max_retries=rl.max_retries,
-            initial_backoff_s=rl.initial_backoff_s,
-            max_backoff_s=rl.max_backoff_s,
-            sleep=self._sleep,
-        )
+        try:
+            completion = retry_with_backoff(
+                lambda: self._client.chat.completions.create(**payload),
+                retry_on=_RETRYABLE,
+                max_retries=rl.max_retries,
+                initial_backoff_s=rl.initial_backoff_s,
+                max_backoff_s=rl.max_backoff_s,
+                sleep=self._sleep,
+            )
+        except BadRequestError as exc:
+            # A weak model can emit a bad tool-arg type; Groq validates tool calls
+            # server-side and returns 400. That's recoverable — surface it as a
+            # ToolCallValidationError so the loop can let the model retry.
+            if _is_tool_validation_error(exc):
+                raise ToolCallValidationError(str(exc)) from exc
+            raise
 
         # Fixed inter-call throttle: the simplest reliable way to stay under a
         # requests-per-minute cap during a long benchmark run.
