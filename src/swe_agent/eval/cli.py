@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from swe_agent.config import load_agent_config, load_config
@@ -63,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
 
     agent_config = load_agent_config()
     if args.max_steps is not None:
-        agent_config = type(agent_config)(max_steps=args.max_steps)
+        agent_config = replace(agent_config, max_steps=args.max_steps)
 
     print(f"Instance : {instance.instance_id} ({instance.repo})")
     print(f"Model    : {llm_config.model} (provider: {llm_config.provider})")

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from swe_agent.config import load_agent_config, load_config
@@ -75,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
 
     agent_config = load_agent_config()
     if args.max_steps is not None:
-        agent_config = type(agent_config)(max_steps=args.max_steps)
+        agent_config = replace(agent_config, max_steps=args.max_steps)
 
     llm = build_llm_client(llm_config)
     print(

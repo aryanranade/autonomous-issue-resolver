@@ -27,3 +27,4 @@ max_backoff_s         = 60.0  # cap on any single backoff
 
 [agent]
 max_steps = 25   # hard cap on LLM calls per task (bounds cost/time and runaway loops)
+keep_recent_tool_results = 6  # send only the N most recent tool outputs in full; older ones are elided to save tokens

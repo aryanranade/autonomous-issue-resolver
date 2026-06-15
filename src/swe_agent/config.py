@@ -33,6 +33,9 @@ class AgentConfig:
     """Settings for the agent loop (read from the ``[agent]`` table)."""
 
     max_steps: int = 25
+    # How many of the most recent tool outputs to send to the model in full;
+    # older ones are elided to save tokens (see agent/compaction.py).
+    keep_recent_tool_results: int = 6
 
 
 @dataclass(frozen=True)
@@ -113,4 +116,7 @@ def load_agent_config(path: Path | None = None) -> AgentConfig:
     with path.open("rb") as fh:
         raw = tomllib.load(fh)
     agent = raw.get("agent", {})
-    return AgentConfig(max_steps=agent.get("max_steps", 25))
+    return AgentConfig(
+        max_steps=agent.get("max_steps", 25),
+        keep_recent_tool_results=agent.get("keep_recent_tool_results", 6),
+    )

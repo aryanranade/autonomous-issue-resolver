@@ -241,8 +241,11 @@ Groq's free tier limits **requests/min (RPM)**, **tokens/min (TPM)**, and
    kills the sweep.
 
 TPD is the binding constraint for free-tier sweeps; TPM 429s are common but the
-retries absorb them. Reducing per-call tokens (read with offsets, not whole
-files) is the deeper lever.
+retries absorb them. The deeper lever is fewer tokens per call: the agent loop
+**compacts the transcript** before each request, sending only the most recent
+tool outputs in full and eliding older ones (`keep_recent_tool_results` in
+`config.toml`, see `agent/compaction.py`) — roughly halving tokens on long runs,
+which directly raises how many instances a daily budget covers.
 
 ---
 

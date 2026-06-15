@@ -11,6 +11,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from swe_agent.agent.compaction import compact_messages
 from swe_agent.agent.prompts import (
     FINISH_SPEC,
     RECORD_PLAN_SPEC,
@@ -99,7 +100,14 @@ class Agent:
         while steps < self._config.max_steps:
             steps += 1
             try:
-                resp = self._llm.complete(messages, tools=self._specs)
+                # Send a token-trimmed view (full history is kept for the record).
+                resp = self._llm.complete(
+                    compact_messages(
+                        messages,
+                        keep_recent_tool_results=self._config.keep_recent_tool_results,
+                    ),
+                    tools=self._specs,
+                )
             except Exception as exc:  # noqa: BLE001 — terminal LLM failure ends the run
                 # The LLM is unavailable (quota exhausted after retries, network,
                 # auth). End cleanly with ERROR rather than crashing — a batch run
