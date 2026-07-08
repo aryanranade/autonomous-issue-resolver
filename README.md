@@ -191,22 +191,34 @@ python -m swe_agent.eval.cli --instance-id pallets__flask-4045 --max-steps 20
 
 **A batch (resumable, scored):**
 ```bash
-python -m swe_agent.eval.batch_cli --limit 5            # first 5 instances
+python -m swe_agent.eval.batch_cli --limit 5 --open     # first 5 instances
 python -m swe_agent.eval.batch_cli --instance-ids a,b   # specific ids
-# writes one runs/lite/<instance_id>.json per instance
+# writes one runs/lite/<instance_id>.json per instance,
+# then (re)writes runs/lite/dashboard.html
 ```
 Re-running the same command **resumes** — instances that already have a result
 file are skipped. If a run hits a rate/quota limit it **aborts the rest** and
-leaves them for the next resume (pass `--keep-going` to override).
+leaves them for the next resume (pass `--keep-going` to override). Every run
+regenerates the **HTML dashboard** (below); `--open` pops it open in your browser.
 
 **The report (no API key / Docker needed):**
 ```bash
-python -m swe_agent.eval.analyze_cli --results-dir runs/lite --out runs/lite/report.md
+python -m swe_agent.eval.analyze_cli --results-dir runs/lite \
+    --out runs/lite/report.md --html runs/lite/dashboard.html
 ```
 This classifies every instance into one outcome — `resolved`, or a failure mode
 (`regression`, `incomplete_fix`, `no_patch`, `patch_apply_failed`,
 `eval_incomplete`, `llm_error`, `run_error`) — and prints the resolve rate, an
-outcome breakdown, and a per-repo table.
+outcome breakdown, and a per-repo table (`--out` also saves it as Markdown).
+
+**The dashboard.** `--html` (and every batch run) writes a **self-contained
+`dashboard.html`** — inline CSS/JS, data embedded, no server, no external
+requests. Open it in any browser: a resolve-rate headline, an outcome-breakdown
+chart, a per-repo table, and expandable per-instance rows showing the agent's
+diagnosis, tool-call trace, per-test pass/fail, and the diff it wrote.
+```bash
+open runs/lite/dashboard.html          # macOS  (xdg-open on Linux)
+```
 
 ### Free-tier reality
 

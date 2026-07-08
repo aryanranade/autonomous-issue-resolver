@@ -1,26 +1,33 @@
 """Run the agent over a batch of SWE-bench Lite instances and score the set.
 
 Examples:
-    python -m swe_agent.eval.batch_cli --limit 5
+    python -m swe_agent.eval.batch_cli --limit 5 --open
     python -m swe_agent.eval.batch_cli --instance-ids pallets__flask-4045,django__django-11099
     python -m swe_agent.eval.batch_cli --limit 10 --results-dir runs/lite-10
 
-Requires GROQ_API_KEY and docker. Resumable: re-running the same command continues
+Requires an API key and docker. Resumable: re-running the same command continues
 where an interrupted or rate-limited run left off (already-graded instances are
-skipped). On the free tier the daily token cap will usually abort partway — just
-re-run tomorrow to pick up the rest.
+skipped). On a free tier the daily cap will usually abort partway — just re-run
+later to pick up the rest.
+
+After every run it (re)writes ``<results-dir>/dashboard.html`` — a self-contained
+HTML report you can open in any browser. Pass ``--open`` to pop it open
+automatically when the run finishes.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import webbrowser
 from dataclasses import replace
 from pathlib import Path
 
 from swe_agent.config import load_agent_config, load_config
 from swe_agent.dataset import SWEBenchInstance, load_swebench_lite
+from swe_agent.eval.analysis import load_records
 from swe_agent.eval.batch import run_batch
+from swe_agent.eval.dashboard import render_dashboard
 from swe_agent.eval.runner import InstanceOutcome, solve_and_grade
 from swe_agent.llm.factory import build_llm_client
 
@@ -49,6 +56,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--keep-going",
         action="store_true",
         help="Don't abort the batch when an instance hits a rate/quota limit.",
+    )
+    parser.add_argument(
+        "--open",
+        dest="open_dashboard",
+        action="store_true",
+        help="Open the HTML dashboard in your browser when the run finishes.",
     )
     return parser.parse_args(argv)
 
@@ -113,7 +126,20 @@ def main(argv: list[str] | None = None) -> int:
         f"({summary.resolved}/{summary.total})"
     )
     print(f"results dir  : {summary.results_dir}")
+
+    # Always refresh the dashboard so it reflects the latest results.
+    dashboard = args.results_dir / "dashboard.html"
+    dashboard.write_text(
+        render_dashboard(load_records(args.results_dir)), encoding="utf-8"
+    )
+    print(f"dashboard    : {dashboard}")
     print("=" * 60)
+
+    if args.open_dashboard:
+        webbrowser.open(dashboard.resolve().as_uri())
+        print("(opening the dashboard in your browser…)")
+    else:
+        print(f"tip: open it with  →  open {dashboard}")
     return 0
 
 
