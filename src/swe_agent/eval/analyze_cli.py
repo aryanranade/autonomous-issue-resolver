@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from swe_agent.eval.analysis import analyze, format_report, load_records
+from swe_agent.eval.dashboard import render_dashboard
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -27,6 +28,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--out", type=Path, help="Also write the Markdown report to this path."
+    )
+    parser.add_argument(
+        "--html",
+        type=Path,
+        help="Also write a self-contained HTML dashboard to this path "
+        "(open it in any browser).",
     )
     return parser.parse_args(argv)
 
@@ -50,7 +57,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(markdown, encoding="utf-8")
-        print(f"(written to {args.out})", file=sys.stderr)
+        print(f"(markdown written to {args.out})", file=sys.stderr)
+
+    if args.html is not None:
+        args.html.parent.mkdir(parents=True, exist_ok=True)
+        args.html.write_text(render_dashboard(records), encoding="utf-8")
+        print(f"(dashboard written to {args.html})", file=sys.stderr)
 
     return 0
 
