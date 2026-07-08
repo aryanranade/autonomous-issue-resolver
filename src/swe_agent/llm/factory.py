@@ -17,7 +17,11 @@ from swe_agent.llm.groq_client import GroqClient
 # take extra keyword-only args (e.g. injectable client/sleep) beyond the config.
 _REGISTRY: dict[str, Callable[[LLMConfig], LLMClient]] = {
     "groq": GroqClient,
-    # Later: "openai": OpenAIClient, "anthropic": AnthropicClient, ...
+    # GroqClient is a generic OpenAI-compatible client (it only depends on
+    # base_url + api key), so it also drives other OpenAI-compatible endpoints
+    # like Gemini's — the difference is entirely in config.toml.
+    "gemini": GroqClient,
+    # Later: native "anthropic": AnthropicClient, ...
 }
 
 
