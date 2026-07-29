@@ -46,7 +46,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         llm_config = load_config()  # raises if the API key is missing
-    except RuntimeError as exc:
+        llm = build_llm_client(llm_config)  # raises if the provider is unknown
+    except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
@@ -73,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
 
     outcome = solve_and_grade(
         instance,
-        build_llm_client(llm_config),
+        llm,
         agent_config,
         report=print,
         eval_timeout=args.eval_timeout,

@@ -30,6 +30,11 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.mypy]
-python_version = "3.11"
+# `python_version` is deliberately NOT pinned: mypy then analyses using the
+# interpreter it runs under, and the CI matrix (3.11 + 3.12) enforces both.
+# Pinning it to 3.11 while running on 3.12 breaks on typed third-party stubs —
+# numpy >=2.5 (pulled in transitively by datasets/swebench, and shipping
+# py.typed) uses PEP 695 `type` statements that are a syntax error under 3.11.
 strict = true
-files = ["src"]
+files = ["src", "scripts"]
+mypy_path = "src"

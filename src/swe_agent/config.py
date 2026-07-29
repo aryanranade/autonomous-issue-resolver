@@ -46,7 +46,11 @@ class LLMConfig:
     model: str
     api_key: str
     base_url: str | None = None
-    temperature: float = 0.0
+    # None means "don't send this parameter at all". Some providers reject
+    # sampling parameters outright (current Anthropic models return a 400 if
+    # `temperature` is present), so omitting the key from config.toml has to be
+    # distinguishable from setting it to 0.0.
+    temperature: float | None = None
     max_tokens: int = 4096
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
 
@@ -95,7 +99,8 @@ def load_config(
         model=llm["model"],
         api_key=api_key,
         base_url=llm.get("base_url"),
-        temperature=llm.get("temperature", 0.0),
+        # Absent -> None -> the parameter is not sent (see LLMConfig.temperature).
+        temperature=llm.get("temperature"),
         max_tokens=llm.get("max_tokens", 4096),
         rate_limit=RateLimitConfig(
             delay_between_calls_s=rl.get("delay_between_calls_s", 2.0),

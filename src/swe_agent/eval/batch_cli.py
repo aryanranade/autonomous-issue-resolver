@@ -71,7 +71,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         llm_config = load_config()  # raises if the API key is missing
-    except RuntimeError as exc:
+        llm = build_llm_client(llm_config)  # raises if the provider is unknown
+    except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
@@ -91,7 +92,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.max_steps is not None:
         agent_config = replace(agent_config, max_steps=args.max_steps)
 
-    llm = build_llm_client(llm_config)
     print(
         f"Batch: {len(instances)} instance(s)  model={llm_config.model}  "
         f"results={args.results_dir}\n"

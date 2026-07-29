@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from swe_agent.agent.loop import Agent
@@ -47,20 +48,22 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         llm_config = load_config()  # raises if the API key is missing
-    except RuntimeError as exc:
+        llm = build_llm_client(llm_config)  # raises if the provider is unknown
+    except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
     agent_config = load_agent_config()
     if args.max_steps is not None:
-        agent_config = type(agent_config)(max_steps=args.max_steps)
+        # replace() so overriding one field doesn't reset the others.
+        agent_config = replace(agent_config, max_steps=args.max_steps)
 
     print(f"Model: {llm_config.model} (provider: {llm_config.provider})")
     print(f"Repo:  {repo}")
     print(f"Max steps: {agent_config.max_steps}\n")
 
     agent = Agent(
-        llm=build_llm_client(llm_config),
+        llm=llm,
         registry=default_registry(),
         ctx=ToolContext(root=repo, executor=LocalExecutor()),
         config=agent_config,

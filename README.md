@@ -64,10 +64,14 @@ stronger paid API later is a `config.toml` edit, not a code change.
 ```
 autonomous-issue-resolver/
 ├── README.md
+├── LICENSE                 # MIT
 ├── pyproject.toml          # deps + tooling config (pytest, mypy)
 ├── config.toml             # provider/model/rate-limit settings — edit to swap providers
-├── .env.example            # template for the gitignored .env (holds GROQ_API_KEY)
+├── .env.example            # template for the gitignored .env (one API key)
 ├── .gitignore
+├── .github/workflows/ci.yml  # CI: mypy --strict + pytest on 3.11/3.12
+├── scripts/
+│   └── smoke_test.py       # cheap end-to-end check; most stages cost 0 tokens
 ├── src/swe_agent/
 │   ├── config.py           # loads config.toml + API key from env
 │   ├── task.py             # Task: the unit of work (id + problem statement)
@@ -79,6 +83,8 @@ autonomous-issue-resolver/
 │   ├── utils/retry.py      # retry-with-exponential-backoff (rate-limit handling)
 │   ├── tools/              # Phase 1: the agent tools + CommandExecutor seam
 │   ├── agent/              # Phase 2: the agent loop + CLI
+│   │   ├── loop.py         #   the ReAct loop (plan → act → observe → repeat)
+│   │   └── compaction.py   #   elide old tool outputs to cut tokens per call
 │   ├── sandbox/            # Phase 3: Docker isolation
 │   │   ├── docker.py       #   DockerSandbox + DockerExecutor (CommandExecutor over a container)
 │   │   └── environment.py  #   SWEBenchEnvironment: provision a real instance to solve in
@@ -87,6 +93,7 @@ autonomous-issue-resolver/
 │       ├── runner.py       #   solve_and_grade(): one instance, end to end
 │       ├── batch.py        #   run_batch(): many instances, resumable + scored
 │       ├── analysis.py     #   classify outcomes → AnalysisReport → Markdown
+│       ├── dashboard.py    #   render a self-contained offline dashboard.html
 │       ├── cli.py          #   run + grade ONE SWE-bench instance
 │       ├── batch_cli.py    #   run + grade a BATCH
 │       └── analyze_cli.py  #   turn result records into the report
@@ -127,18 +134,43 @@ Things we intentionally **did not** add:
   `.env` locally, which is gitignored). `LLMConfig.__repr__` masks the key.
 
 ```bash
-cp .env.example .env       # then paste your key
-# get a free key at https://console.groq.com/keys
+cp .env.example .env       # then paste ONE key — whichever provider config.toml names
+# a free Groq key (the default) : https://console.groq.com/keys
 ```
 
-To swap to a different OpenAI-compatible provider, edit `config.toml`:
+### Using a different provider
+
+Any **OpenAI-compatible** endpoint is a `config.toml` edit — no code change.
+`provider` selects the client implementation; `groq`, `gemini`, and `openai` all
+map to the same generic OpenAI-compatible client, so they differ only in
+`base_url`/`api_key_env`. Use `openai` for OpenAI itself, OpenRouter, DeepSeek,
+Together, or a local vLLM/Ollama server:
+
 ```toml
 [llm]
-provider    = "groq"          # add a new impl + registry entry for non-OpenAI APIs
-model       = "..."
-base_url    = "..."
-api_key_env = "SOME_OTHER_KEY"
+provider    = "openai"                      # groq | gemini | openai
+model       = "gpt-4o-mini"
+base_url    = "https://api.openai.com/v1"   # your provider's endpoint
+api_key_env = "OPENAI_API_KEY"              # must match the var set in .env
+# temperature = 0.0                         # see the caveat below
 ```
+
+**Sampling-parameter caveat.** `temperature` is only sent when it is present in
+`config.toml`. Some providers (notably current Anthropic models) reject sampling
+parameters with a 400, so **comment the line out** for those. Leaving it set is
+what you want for Groq/Gemini/OpenAI, where a fixed temperature makes runs more
+reproducible.
+
+**Anthropic (Claude) is deliberately not wired up.** Its API is not
+OpenAI-compatible, so it is *not* aliased to the generic client — setting
+`provider = "anthropic"` fails immediately with an explanatory error rather than
+breaking mid-run. Adding it means writing a small `AnthropicClient` implementing
+the `LLMClient` interface in `src/swe_agent/llm/`, registering it in
+`factory.py`, and adding the `anthropic` dependency. Everything above the LLM
+layer stays untouched — that's the point of the interface.
+
+A misconfigured provider or a missing key is caught at startup by every CLI,
+which prints a one-line error and exits `2` — no traceback, nothing half-run.
 
 ---
 
@@ -157,6 +189,26 @@ Silicon (arm64) Mac: SWE-bench's prebuilt instance images are published for
 **x86_64 only**, so we run them under emulation (`docker run --platform
 linux/amd64`). That works out of the box with Docker Desktop / colima; the first
 run of each instance pulls a ~1 GB image.
+
+### Smoke test — verify the whole pipeline cheaply
+
+Before spending a token budget on a real sweep, check that everything actually
+works end to end:
+
+```bash
+python scripts/smoke_test.py --stage free   # 0 tokens: needs Docker, no API key
+python scripts/smoke_test.py                # adds a short live agent run
+```
+
+The `free` stages cost **nothing**, because the dataset ships each task's *gold*
+patch: grading that patch must produce `RESOLVED_FULL`, which exercises Docker
+provisioning, amd64 emulation, the official `eval_script`, and the log parser —
+the fragile half of the pipeline — without an API key. The `agent` stage then
+makes a few real model calls (`--max-steps`, default 4) to confirm the LLM is
+reachable and tools execute in-container, and prints exact token usage plus a
+projected cost per full run, so you can size a sweep against your quota.
+
+This is the recommended first command after adding a key to `.env`.
 
 ---
 
@@ -222,12 +274,17 @@ open runs/lite/dashboard.html          # macOS  (xdg-open on Linux)
 
 ### Free-tier reality
 
-Groq's free tier caps **tokens per day (≈100k)** as well as per-minute rates. A
-single SWE-bench task can spend ~50–100k tokens (the transcript grows with every
-file read and tool result), so in practice you can grade only **a handful of
-instances per day** before the daily cap aborts the batch. The harness is built
-for this: it's resumable, so you continue the next day, and a paid tier (or a
-different provider via `config.toml`) lifts the ceiling.
+Groq's free tier caps **tokens per day (≈100k)** as well as per-minute rates.
+Measured on `pallets__flask-4045` with `llama-3.3-70b-versatile`: about
+**2,200 tokens per step**, so a full 25-step attempt costs **~55k tokens** — the
+transcript is re-sent every step and grows with each file read and tool result.
+
+That means the free daily budget is **less than two complete attempts**, and in
+practice runs have died mid-way rather than finishing. The harness is built for
+this: it's resumable, so you continue the next day, and a paid tier (or a
+different provider via `config.toml`) lifts the ceiling. Use
+`scripts/smoke_test.py` to measure the per-step cost of *your* provider before
+committing to a sweep.
 
 Disk is the other cost: each instance pulls a ~1 GB image. A batch spanning many
 repos can pull several GB; prune unused images with `docker image prune` between

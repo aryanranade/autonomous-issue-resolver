@@ -11,19 +11,19 @@
 # ──────────────────────────────────────────────────────────────────────────
 
 [llm]
-provider    = "gemini"                   # selects which LLMClient implementation to build
-model       = "gemini-2.5-flash"         # model id passed straight to the provider
-api_key_env = "GEMINI_API_KEY"           # env var that holds the secret (value never stored here)
-base_url    = "https://generativelanguage.googleapis.com/v1beta/openai/"  # Gemini's OpenAI-compatible endpoint
+provider    = "groq"                     # selects which LLMClient implementation to build
+model       = "llama-3.3-70b-versatile"  # model id passed straight to the provider
+api_key_env = "GROQ_API_KEY"             # env var that holds the secret (value never stored here)
+base_url    = "https://api.groq.com/openai/v1"  # Groq's OpenAI-compatible endpoint
 temperature = 0.0                        # near-deterministic -> more reproducible benchmark runs
 max_tokens  = 4096
-# To switch back to Groq's free Llama: provider="groq",
-# model="llama-3.3-70b-versatile", api_key_env="GROQ_API_KEY",
-# base_url="https://api.groq.com/openai/v1".
+# To switch to Gemini's free tier: provider="gemini",
+# model="gemini-2.5-flash", api_key_env="GEMINI_API_KEY",
+# base_url="https://generativelanguage.googleapis.com/v1beta/openai/".
 
 [llm.rate_limit]
 # Free-tier friendliness. See README "Where the rate limits bite".
-delay_between_calls_s = 5.0   # fixed pause after every successful call (Gemini free tier is ~10 RPM)
+delay_between_calls_s = 2.0   # fixed pause after every successful call (Groq free tier is ~30 RPM)
 max_retries           = 6     # retries on 429 / 5xx / net errors; also configures the SDK's own retry layer
 initial_backoff_s     = 2.0   # first backoff; doubles each retry (exponential)
 max_backoff_s         = 60.0  # cap on any single backoff

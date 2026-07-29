@@ -19,9 +19,15 @@ _REGISTRY: dict[str, Callable[[LLMConfig], LLMClient]] = {
     "groq": GroqClient,
     # GroqClient is a generic OpenAI-compatible client (it only depends on
     # base_url + api key), so it also drives other OpenAI-compatible endpoints
-    # like Gemini's — the difference is entirely in config.toml.
+    # like Gemini's — the difference is entirely in config.toml. `openai` is the
+    # catch-all name for any such endpoint (OpenAI itself, OpenRouter, DeepSeek,
+    # Together, a local vLLM/Ollama server, ...): set `base_url` and go.
     "gemini": GroqClient,
-    # Later: native "anthropic": AnthropicClient, ...
+    "openai": GroqClient,
+    # NOT registered on purpose: "anthropic". Claude is not an OpenAI-compatible
+    # API — it needs a native client implementing LLMClient (see README
+    # "Using a different provider"). Wiring it here would fail at request time
+    # rather than at startup, which is the worse failure.
 }
 
 
@@ -35,7 +41,19 @@ def build_llm_client(config: LLMConfig) -> LLMClient:
         cls = _REGISTRY[config.provider]
     except KeyError:
         known = ", ".join(sorted(_REGISTRY))
+        hint = (
+            "Set [llm] provider in config.toml to one of: "
+            f"{known}. Any OpenAI-compatible endpoint works with "
+            'provider = "openai" plus the right base_url.'
+        )
+        if config.provider == "anthropic":
+            hint = (
+                "Anthropic's API is not OpenAI-compatible, so it needs a native "
+                "client implementing LLMClient (see README, 'Using a different "
+                "provider'). It is deliberately not aliased to the "
+                "OpenAI-compatible client."
+            )
         raise ValueError(
-            f"Unknown LLM provider {config.provider!r}. Known providers: {known}."
+            f"Unknown LLM provider {config.provider!r}. {hint}"
         ) from None
     return cls(config)

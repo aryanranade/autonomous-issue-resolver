@@ -131,9 +131,15 @@ class GroqClient(LLMClient):
         payload: dict[str, Any] = {
             "model": overrides.get("model", cfg.model),
             "messages": [_message_to_dict(m) for m in messages],
-            "temperature": overrides.get("temperature", cfg.temperature),
             "max_tokens": overrides.get("max_tokens", cfg.max_tokens),
         }
+        # Only send `temperature` if one is configured. Providers differ on
+        # this: Groq/Gemini accept it, but current Anthropic models reject any
+        # sampling parameter with a 400, so an unset temperature must result in
+        # the key being absent rather than defaulted.
+        temperature = overrides.get("temperature", cfg.temperature)
+        if temperature is not None:
+            payload["temperature"] = temperature
         if tools:
             payload["tools"] = [_tool_to_dict(t) for t in tools]
             payload["tool_choice"] = overrides.get("tool_choice", "auto")

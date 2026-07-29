@@ -66,6 +66,37 @@ def test_translates_messages_and_tools_into_payload() -> None:
     assert payload["tool_choice"] == "auto"
 
 
+def test_unset_temperature_is_omitted_from_the_payload() -> None:
+    """A None temperature must not be sent at all.
+
+    Current Anthropic models reject any sampling parameter with a 400, so
+    "unset" has to mean "key absent", not "key defaulted to 0.0".
+    """
+    fake = FakeOpenAI([make_completion(content="hi")])
+    config = LLMConfig(
+        provider="openai",
+        model="m",
+        api_key="x",
+        base_url="https://example.test/v1",
+        temperature=None,
+    )
+    client = GroqClient(config, client=fake, sleep=lambda _: None)  # type: ignore[arg-type]
+
+    client.complete([Message(role="user", content="hello")])
+
+    assert "temperature" not in fake.calls[0]
+
+
+def test_explicit_zero_temperature_is_still_sent() -> None:
+    """0.0 is a real value, not "unset" — it must survive the None check."""
+    fake = FakeOpenAI([make_completion(content="hi")])
+    client = GroqClient(_config(), client=fake, sleep=lambda _: None)  # type: ignore[arg-type]
+
+    client.complete([Message(role="user", content="hello")])
+
+    assert fake.calls[0]["temperature"] == 0.0
+
+
 def test_no_tools_means_no_tool_keys() -> None:
     fake = FakeOpenAI([make_completion()])
     client = GroqClient(_config(), client=fake, sleep=lambda _: None)  # type: ignore[arg-type]
