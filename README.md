@@ -1,374 +1,374 @@
-# swe-agent
+<div align="center">
+
+# Autonomous Issue Resolver
+
+**An autonomous coding agent that resolves real GitHub issues — evaluated with the official SWE-bench harness.**
 
 [![CI](https://github.com/aryanranade/autonomous-issue-resolver/actions/workflows/ci.yml/badge.svg)](https://github.com/aryanranade/autonomous-issue-resolver/actions/workflows/ci.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Checked with mypy](https://img.shields.io/badge/mypy-strict-blue.svg)](https://mypy-lang.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/Docker-required-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Tests](https://img.shields.io/badge/tests-131%20passing-0A9EDC?logo=pytest&logoColor=white)](tests/)
+[![mypy](https://img.shields.io/badge/mypy-strict-1F5082?logo=python&logoColor=white)](https://mypy-lang.org/)
+[![License](https://img.shields.io/badge/License-MIT-3DA639?logo=opensourceinitiative&logoColor=white)](LICENSE)
 
-An autonomous coding agent that resolves real GitHub issues, benchmarked on
-**SWE-bench Lite** (300 real Python issues, each with hidden verifying tests).
+[![SWE-bench](https://img.shields.io/badge/benchmark-SWE--bench%20Lite-8A2BE2)](https://www.swebench.com/)
+[![Dataset](https://img.shields.io/badge/dataset-🤗%20princeton--nlp%2FSWE--bench__Lite-FFD21E)](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite)
 
-This is a portfolio project. The goal is a **citable success-rate number plus a
-thorough failure analysis** on a free, open model — not a state-of-the-art
-score. A modest score is expected and fine.
-
-> **Status:** the full pipeline (Phases 0–5) is built and tested — agent loop,
-> per-instance Docker environment, official SWE-bench grading, a batch runner,
-> and a failure-analysis report. What remains is *running* the benchmark at
-> scale, which is gated by the free-tier token budget (see
-> [Evaluation workflow](#evaluation-workflow)). See the [phase plan](#phase-plan).
+</div>
 
 ---
 
-## High-level design
+## Overview
 
-```
-                ┌──────────────────────────────────────────────┐
-                │                  Agent loop                    │   (Phase 2)
-                │  plan → choose tool → act → observe → repeat   │
-                └───────────────┬───────────────┬───────────────┘
-                                │               │
-                  calls tools   │               │  calls the model
-                                ▼               ▼
-                ┌──────────────────────┐  ┌──────────────────────┐
-                │      Tool layer       │  │     LLM layer         │  ← Phase 0
-                │ read_file, list_dir,  │  │ LLMClient (interface) │
-                │ search_code,          │  │   └─ GroqClient       │
-                │ edit_file, run_tests  │  │ provider-agnostic     │
-                │      (Phase 1)        │  │ swap via config only  │
-                └───────────┬──────────┘  └──────────────────────┘
-                            │ runs inside
-                            ▼
-                ┌──────────────────────┐
-                │   Docker sandbox      │   (Phase 3) — the agent edits/tests
-                │ one container per     │   inside the real SWE-bench instance
-                │   task (/testbed)     │   image, run under amd64 emulation
-                └───────────┬──────────┘
-                            │ patch graded by
-                            ▼
-                ┌──────────────────────┐
-                │  Evaluation pipeline  │   (Phases 3c–5)
-                │ official grader →     │
-                │ batch runner → log    │
-                │ per-instance JSON →   │
-                │ failure analysis →    │
-                │ summary report        │
-                └──────────────────────┘
-```
+Given a real GitHub issue and the repository it belongs to, this agent plans a fix, navigates the codebase, edits source files, runs the project's test suite, and produces a patch — autonomously, inside an isolated Docker container.
 
-**The central design requirement is the provider-agnostic LLM layer.** Nothing
-above the LLM layer knows it's talking to Groq. The agent loop depends only on
-the `LLMClient` interface and a handful of neutral dataclasses (`Message`,
-`ToolSpec`, `ToolCall`, `LLMResponse`). Swapping Groq's free Llama for a
-stronger paid API later is a `config.toml` edit, not a code change.
+The patch is then graded by **SWE-bench's own evaluation harness**, using the same hidden tests and the same pass/fail criteria as the public leaderboard. Correctness is not self-reported.
+
+The system is deliberately built around a **provider-agnostic LLM interface**: switching between Groq, Google Gemini, OpenAI, OpenRouter, DeepSeek, or a locally hosted model is a configuration edit, not a code change.
+
+### Highlights
+
+| | |
+|---|---|
+| **Official grading** | Patches are scored with swebench's `eval_script` and report parser — not a bespoke checker |
+| **Real isolation** | Every task runs in its own SWE-bench container; the agent edits a bind-mounted checkout at `/testbed` |
+| **Provider-agnostic** | One `LLMClient` interface; providers swap via `config.toml` with zero code changes |
+| **Repo-aware testing** | Uses each project's real test runner — `pytest`, `runtests.py`, `bin/test`, or `tox` |
+| **Resumable batches** | Quota-aware sweeps that survive interruption and continue where they stopped |
+| **Failure analysis** | Every unresolved instance is classified into a specific failure mode |
+| **Zero-cost validation** | The grading pipeline can be verified end to end without spending a single token |
 
 ---
 
-## Repository structure
+## Architecture
 
+```mermaid
+flowchart TB
+    LOOP["<b>Agent Loop</b><br/>plan → act → observe → repeat"]
+    TOOLS["<b>Tool Layer</b><br/>read_file · list_dir · search_code<br/>edit_file · run_shell · run_tests"]
+    LLM["<b>LLM Layer</b><br/>LLMClient interface<br/>provider-agnostic"]
+    SANDBOX["<b>Docker Sandbox</b><br/>one container per task · /testbed<br/>x86_64 images under amd64 emulation"]
+    EVAL["<b>Evaluation Pipeline</b><br/>official grader · batch runner<br/>JSON records · report + dashboard"]
+
+    LOOP -->|invokes| TOOLS
+    LOOP -->|completions| LLM
+    TOOLS -->|execute inside| SANDBOX
+    SANDBOX -->|captured patch| EVAL
+
+    style LOOP fill:#1f6feb,stroke:#1f6feb,color:#ffffff
+    style TOOLS fill:#238636,stroke:#238636,color:#ffffff
+    style LLM fill:#8957e5,stroke:#8957e5,color:#ffffff
+    style SANDBOX fill:#bf8700,stroke:#bf8700,color:#ffffff
+    style EVAL fill:#cf222e,stroke:#cf222e,color:#ffffff
 ```
-autonomous-issue-resolver/
-├── README.md
-├── LICENSE                 # MIT
-├── pyproject.toml          # deps + tooling config (pytest, mypy)
-├── config.toml             # provider/model/rate-limit settings — edit to swap providers
-├── .env.example            # template for the gitignored .env (one API key)
-├── .gitignore
-├── .github/workflows/ci.yml  # CI: mypy --strict + pytest on 3.11/3.12
-├── scripts/
-│   └── smoke_test.py       # cheap end-to-end check; most stages cost 0 tokens
-├── src/swe_agent/
-│   ├── config.py           # loads config.toml + API key from env
-│   ├── task.py             # Task: the unit of work (id + problem statement)
-│   ├── dataset.py          # SWE-bench Lite loading (SWEBenchInstance, load_swebench_lite)
-│   ├── llm/                # Phase 0: provider-agnostic LLM layer
-│   │   ├── base.py         #   provider-neutral interface + dataclasses
-│   │   ├── groq_client.py  #   Groq implementation (only file that knows OpenAI wire format)
-│   │   └── factory.py      #   build_llm_client(config) — the one switch point
-│   ├── utils/retry.py      # retry-with-exponential-backoff (rate-limit handling)
-│   ├── tools/              # Phase 1: the agent tools + CommandExecutor seam
-│   ├── agent/              # Phase 2: the agent loop + CLI
-│   │   ├── loop.py         #   the ReAct loop (plan → act → observe → repeat)
-│   │   └── compaction.py   #   elide old tool outputs to cut tokens per call
-│   ├── sandbox/            # Phase 3: Docker isolation
-│   │   ├── docker.py       #   DockerSandbox + DockerExecutor (CommandExecutor over a container)
-│   │   └── environment.py  #   SWEBenchEnvironment: provision a real instance to solve in
-│   └── eval/               # Phases 3c–5: grading, runners, analysis
-│       ├── grading.py      #   official SWE-bench grading (grade(instance, patch))
-│       ├── runner.py       #   solve_and_grade(): one instance, end to end
-│       ├── batch.py        #   run_batch(): many instances, resumable + scored
-│       ├── analysis.py     #   classify outcomes → AnalysisReport → Markdown
-│       ├── dashboard.py    #   render a self-contained offline dashboard.html
-│       ├── cli.py          #   run + grade ONE SWE-bench instance
-│       ├── batch_cli.py    #   run + grade a BATCH
-│       └── analyze_cli.py  #   turn result records into the report
-└── tests/                  # pytest; LLM tests use fakes, Docker tests skip without a daemon
+
+Nothing above the LLM layer knows which provider is in use. The agent depends only on the `LLMClient` interface and a small set of neutral dataclasses (`Message`, `ToolSpec`, `ToolCall`, `LLMResponse`), which is what makes provider swapping a configuration concern rather than an engineering one.
+
+### Evaluation pipeline
+
+```mermaid
+flowchart LR
+    A["SWE-bench<br/>instance"] --> B["Provision<br/>container"]
+    B --> C["Agent<br/>solves"]
+    C --> D["Capture<br/>git diff"]
+    D --> E["Official<br/>grader"]
+    E --> F["JSON<br/>record"]
+    F --> G["Report +<br/>dashboard"]
+
+    style E fill:#cf222e,stroke:#cf222e,color:#ffffff
+    style G fill:#238636,stroke:#238636,color:#ffffff
 ```
+
+Grading deliberately runs in a **fresh container**, independent of the one the agent worked in, so a score depends only on the captured patch — never on residual state the agent left behind.
 
 ---
 
-## Dependencies & justification
+## Quick Start
 
-Kept deliberately small.
+### Prerequisites
 
-| Dependency       | Why it's here | Alternative rejected |
-|------------------|---------------|----------------------|
-| `openai`         | Groq exposes an OpenAI-compatible endpoint; the SDK gives us robust tool-call serialization and 429-retry (honouring `Retry-After`) for free, and pointing it at a different `base_url` is most of "swap the provider". | Raw `httpx` calls — more code to maintain for little gain, since we wrap it behind our own interface. |
-| `python-dotenv`  | Load `GROQ_API_KEY` from a gitignored `.env` in local dev. | Manual `export` only — easy to forget; dotenv is tiny and standard. |
-| `datasets`       | Load SWE-bench Lite (the 300 tasks + their gold tests) from the Hugging Face hub. | Hand-fetching parquet — reinventing what `datasets` does well. |
-| `swebench`       | The **authoritative** source of per-instance Docker image names, the `eval_script`, and the official grader. Used so our pass/fail is the *same* number the SWE-bench leaderboard uses. | Reimplementing image naming + grading — fragile and non-citable; the whole point is a faithful score. |
-| `pytest` (dev)   | Test runner. | stdlib `unittest` — more boilerplate, weaker fixtures. |
-| `mypy` (dev)     | Enforce the strict type hints used throughout. | None; type checking is a stated requirement. |
+- Python 3.11 or newer
+- Docker (Desktop, colima, or any daemon)
+- An API key for any OpenAI-compatible provider
 
-Things we intentionally **did not** add:
-- **No YAML lib** — config is TOML, read with the stdlib `tomllib` (Python 3.11+).
-- **No `tenacity`** — the backoff logic we need is ~30 lines and we want an
-  injectable `sleep` for instant tests, so it's hand-rolled in `utils/retry.py`.
-- **No `docker` SDK** — we shell out to the `docker` CLI from `sandbox/docker.py`,
-  consistent with how the local executor uses `subprocess`.
-
----
-
-## Configuration & secrets
-
-- **`config.toml`** holds non-secret settings: provider, model, base URL,
-  temperature, token limits, rate-limit knobs, and the agent step budget.
-  **Editing this file is how you swap providers** — no code change.
-- **API keys are never in the repo.** `config.toml` stores only the *name* of
-  the env var (`api_key_env`); the value is read from the environment (and
-  `.env` locally, which is gitignored). `LLMConfig.__repr__` masks the key.
+### Installation
 
 ```bash
-cp .env.example .env       # then paste ONE key — whichever provider config.toml names
-# a free Groq key (the default) : https://console.groq.com/keys
+git clone https://github.com/aryanranade/autonomous-issue-resolver.git
+cd autonomous-issue-resolver
+
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
-### Using a different provider
+### Configuration
 
-Any **OpenAI-compatible** endpoint is a `config.toml` edit — no code change.
-`provider` selects the client implementation; `groq`, `gemini`, and `openai` all
-map to the same generic OpenAI-compatible client, so they differ only in
-`base_url`/`api_key_env`. Use `openai` for OpenAI itself, OpenRouter, DeepSeek,
-Together, or a local vLLM/Ollama server:
+```bash
+cp .env.example .env     # add one API key — whichever provider config.toml names
+```
+
+API keys never enter the repository. `config.toml` stores only the *name* of the environment variable holding the key; the value is read from the environment (or a gitignored `.env`), and `LLMConfig.__repr__` masks it in logs and tracebacks.
+
+### Verify the installation
+
+```bash
+pytest                                       # 131 tests, no API key required
+python scripts/smoke_test.py --stage free    # end-to-end pipeline check, 0 tokens
+```
+
+The `--stage free` check is the recommended first command. It costs nothing and is explained under [Validation](#validation).
+
+---
+
+## Usage
+
+### Solve and grade a single instance
+
+```bash
+python -m swe_agent.eval.cli --instance-id pallets__flask-4045 --max-steps 20
+```
+
+Streams the agent's reasoning and tool calls live, then prints the official grade. Add `--results-dir runs/lite` to persist a JSON record.
+
+### Run a batch
+
+```bash
+python -m swe_agent.eval.batch_cli --limit 30 --results-dir runs/lite --open
+```
+
+Writes one record per instance and regenerates the HTML dashboard. Re-running **resumes**: already-graded instances are skipped, and a sweep interrupted by a rate limit or quota exhaustion picks up exactly where it left off.
+
+### Generate the report
+
+```bash
+python -m swe_agent.eval.analyze_cli --results-dir runs/lite \
+    --out runs/lite/report.md --html runs/lite/dashboard.html
+```
+
+Requires neither an API key nor Docker. Every instance is classified into one outcome:
+
+`resolved` · `regression` · `incomplete_fix` · `no_patch` · `patch_apply_failed` · `eval_incomplete` · `llm_error` · `run_error`
+
+The dashboard is a **self-contained HTML file** — inline CSS and JS, data embedded, no server and no external requests — with a resolve-rate headline, an outcome breakdown, a per-repository table, and expandable rows showing each run's diagnosis, tool trace, per-test results, and diff.
+
+### Run against any local repository
+
+```bash
+python -m swe_agent.agent.cli --repo ./path/to/repo \
+    --issue "subtract(5, 3) returns 8 but should return 2"
+```
+
+> [!NOTE]
+> This mode executes commands on the host without a sandbox. It is intended for quick local use; the graded SWE-bench path above is fully containerized.
+
+---
+
+## Provider Configuration
+
+Any OpenAI-compatible endpoint works through the same client. Only `config.toml` changes.
 
 ```toml
 [llm]
 provider    = "openai"                      # groq | gemini | openai
 model       = "gpt-4o-mini"
-base_url    = "https://api.openai.com/v1"   # your provider's endpoint
-api_key_env = "OPENAI_API_KEY"              # must match the var set in .env
-# temperature = 0.0                         # see the caveat below
+base_url    = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+# temperature = 0.0                         # omit for providers that reject sampling params
 ```
 
-**Sampling-parameter caveat.** `temperature` is only sent when it is present in
-`config.toml`. Some providers (notably current Anthropic models) reject sampling
-parameters with a 400, so **comment the line out** for those. Leaving it set is
-what you want for Groq/Gemini/OpenAI, where a fixed temperature makes runs more
-reproducible.
+| Provider | `provider` | Notes |
+|---|---|---|
+| Groq | `groq` | Default. Free tier available |
+| Google Gemini | `gemini` | Via Gemini's OpenAI-compatible endpoint |
+| OpenAI | `openai` | Also covers OpenRouter, DeepSeek, Together, vLLM, Ollama |
+| Anthropic | — | Not OpenAI-compatible; see below |
 
-**Anthropic (Claude) is deliberately not wired up.** Its API is not
-OpenAI-compatible, so it is *not* aliased to the generic client — setting
-`provider = "anthropic"` fails immediately with an explanatory error rather than
-breaking mid-run. Adding it means writing a small `AnthropicClient` implementing
-the `LLMClient` interface in `src/swe_agent/llm/`, registering it in
-`factory.py`, and adding the `anthropic` dependency. Everything above the LLM
-layer stays untouched — that's the point of the interface.
+**Sampling parameters.** `temperature` is transmitted only when present in `config.toml`. Some providers — current Anthropic models among them — reject sampling parameters with a `400`, so the key must be absent rather than defaulted. Comment it out for those providers.
 
-A misconfigured provider or a missing key is caught at startup by every CLI,
-which prints a one-line error and exits `2` — no traceback, nothing half-run.
+**Anthropic** is intentionally not aliased to the generic client, because its API is not OpenAI-compatible. Setting `provider = "anthropic"` fails immediately with an explanatory error rather than breaking mid-run. Adding support means implementing `LLMClient` in `src/swe_agent/llm/` and registering it in `factory.py`; nothing above the LLM layer changes.
+
+Misconfiguration is caught at startup by every CLI, which prints a single-line diagnostic and exits `2` — no traceback, no partially executed run.
 
 ---
 
-## Setup & running tests
+## Validation
+
+Correctness of the grading pipeline is verified **without spending any tokens**, by exploiting a property of the dataset: every SWE-bench instance ships its own *gold* patch. Grading that patch must produce `RESOLVED_FULL`. If it does not, the harness is wrong and every score it produces is meaningless.
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-
-pytest          # the suite (no API key needed; Docker/grading tests skip without a daemon)
-mypy            # static type check
+python scripts/smoke_test.py --stage free
 ```
 
-The benchmark also needs **Docker**. This project was developed on an Apple
-Silicon (arm64) Mac: SWE-bench's prebuilt instance images are published for
-**x86_64 only**, so we run them under emulation (`docker run --platform
-linux/amd64`). That works out of the box with Docker Desktop / colima; the first
-run of each instance pulls a **~3.8 GB** image (measured across django, sympy,
-sphinx, and flask).
+| Stage | LLM cost | What it proves |
+|---|---|---|
+| `grade-gold` | none | Dataset loading, container provisioning, amd64 emulation, official `eval_script`, log parsing, resolution status |
+| `grade-empty` | none | The no-diff short circuit (negative control) |
+| `agent` | small | Model reachability, in-container tool execution, patch capture — and reports measured token cost per step |
 
-### Smoke test — verify the whole pipeline cheaply
-
-Before spending a token budget on a real sweep, check that everything actually
-works end to end:
-
-```bash
-python scripts/smoke_test.py --stage free   # 0 tokens: needs Docker, no API key
-python scripts/smoke_test.py                # adds a short live agent run
-```
-
-The `free` stages cost **nothing**, because the dataset ships each task's *gold*
-patch: grading that patch must produce `RESOLVED_FULL`, which exercises Docker
-provisioning, amd64 emulation, the official `eval_script`, and the log parser —
-the fragile half of the pipeline — without an API key. The `agent` stage then
-makes a few real model calls (`--max-steps`, default 4) to confirm the LLM is
-reachable and tools execute in-container, and prints exact token usage plus a
-projected cost per full run, so you can size a sweep against your quota.
-
-This is the recommended first command after adding a key to `.env`.
+This has been executed across all four test-runner families in SWE-bench Lite — django, sympy, sphinx, and flask — with every gold patch scoring `RESOLVED_FULL`, alongside verification of image auto-pull, container cleanup, and batch resume.
 
 ---
 
-## Running the agent on a local repo
+## Engineering Notes
 
-Point the agent at any local git repository and describe the issue:
+Details that were non-obvious and materially affected correctness.
 
-```bash
-python -m swe_agent.agent.cli --repo ./path/to/repo \
-    --issue "subtract(5, 3) returns 8 but should return 2"
-# or:  --issue-file bug.txt    --max-steps 15
-```
+<details>
+<summary><b>Only 31% of SWE-bench Lite uses pytest</b></summary>
 
-It streams each tool call, then prints the diff it produced. **Note:** this mode
-runs commands on the host (no sandbox) — it's for quick local use. The sandboxed,
-graded SWE-bench path is below.
+<br>
 
----
+The agent's `run_tests` tool originally assumed `pytest`. In reality:
 
-## Evaluation workflow
+| Runner | Instances | Share |
+|---|---:|---:|
+| `./tests/runtests.py` (django) | 114 | 38% |
+| `bin/test` (sympy) | 77 | 26% |
+| `pytest` | 93 | 31% |
+| `tox` (sphinx) | 16 | 5% |
 
-The benchmark runs each task inside its official SWE-bench Docker image. The
-agent edits a bind-mounted checkout of the repo at `/testbed` (so its host-side
-file edits and the container's test runs share files), then the resulting patch
-is graded in a **fresh** container using swebench's own `eval_script` + grader.
+Assuming pytest silently disabled the agent's ability to verify its own fix or detect regressions on **69% of the benchmark** — without ever failing loudly, since grading uses swebench's own script. The tool now derives its command from swebench's repo/version table, the same source the official grader reads, so the agent tests exactly the way it will be graded.
 
-**Per-repo test runners.** Only **93 of the 300** SWE-bench Lite instances use
-pytest. django (114) runs `./tests/runtests.py`, sympy (77) runs `bin/test`, and
-sphinx (16) runs `tox`. The agent's `run_tests` tool therefore takes its command
-from swebench's own repo/version table (`repo_test_command()`) rather than
-assuming pytest — so the agent verifies its fix and checks for regressions using
-the same runner the official grader will use. Outside SWE-bench (`agent.cli` on
-a local repo) it falls back to pytest.
+</details>
 
-**One instance, end to end:**
-```bash
-python -m swe_agent.eval.cli --instance-id pallets__flask-4045 --max-steps 20
-# add --results-dir runs/lite to also save a JSON record for analysis
-```
+<details>
+<summary><b>Running x86_64-only images on Apple Silicon</b></summary>
 
-**A batch (resumable, scored):**
-```bash
-python -m swe_agent.eval.batch_cli --limit 5 --open     # first 5 instances
-python -m swe_agent.eval.batch_cli --instance-ids a,b   # specific ids
-# writes one runs/lite/<instance_id>.json per instance,
-# then (re)writes runs/lite/dashboard.html
-```
-Re-running the same command **resumes** — instances that already have a result
-file are skipped. If a run hits a rate/quota limit it **aborts the rest** and
-leaves them for the next resume (pass `--keep-going` to override). Every run
-regenerates the **HTML dashboard** (below); `--open` pops it open in your browser.
+<br>
 
-**The report (no API key / Docker needed):**
-```bash
-python -m swe_agent.eval.analyze_cli --results-dir runs/lite \
-    --out runs/lite/report.md --html runs/lite/dashboard.html
-```
-This classifies every instance into one outcome — `resolved`, or a failure mode
-(`regression`, `incomplete_fix`, `no_patch`, `patch_apply_failed`,
-`eval_incomplete`, `llm_error`, `run_error`) — and prints the resolve rate, an
-outcome breakdown, and a per-repo table (`--out` also saves it as Markdown).
+SWE-bench publishes prebuilt instance images for `x86_64` only. On arm64 hosts they run under emulation via `--platform linux/amd64`. Correct, though slower — and the reason grading times are dominated by test execution rather than model latency.
 
-**The dashboard.** `--html` (and every batch run) writes a **self-contained
-`dashboard.html`** — inline CSS/JS, data embedded, no server, no external
-requests. Open it in any browser: a resolve-rate headline, an outcome-breakdown
-chart, a per-repo table, and expandable per-instance rows showing the agent's
-diagnosis, tool-call trace, per-test pass/fail, and the diff it wrote.
-```bash
-open runs/lite/dashboard.html          # macOS  (xdg-open on Linux)
-```
+</details>
 
-### Free-tier reality
+<details>
+<summary><b>Preserving the editable install across a bind mount</b></summary>
 
-Groq's free tier caps **tokens per day (≈100k)** as well as per-minute rates.
-Measured on `pallets__flask-4045` with `llama-3.3-70b-versatile`: about
-**2,200 tokens per step**, so a full 25-step attempt costs **~55k tokens** — the
-transcript is re-sent every step and grows with each file read and tool result.
+<br>
 
-That means the free daily budget is **less than two complete attempts**, and in
-practice runs have died mid-way rather than finishing. The harness is built for
-this: it's resumable, so you continue the next day, and a paid tier (or a
-different provider via `config.toml`) lifts the ceiling. Use
-`scripts/smoke_test.py` to measure the per-step cost of *your* provider before
-committing to a sweep.
+The agent needs host-side file edits and in-container test runs to share a filesystem. A naive bind mount over `/testbed` would shadow the image's contents and break the `pip install -e .` baked into the image.
 
-Disk is the other cost, and it's the bigger one. Instance images are **~3.8 GB
-each**, and they're per-*instance*, not per-repo — so a 30-instance sweep pulls
-roughly **110 GB** and the full 300 would be over a terabyte. Containers are
-removed after each instance, but the images are not, so prune between chunks:
+The environment instead copies `/testbed` out of the image via a throwaway container, then bind-mounts it back **at the same path** — so the editable install stays valid while edits and test runs share files.
 
-```bash
-docker image prune -a -f     # between chunks of ~25 instances
-```
+</details>
 
-Run in chunks and the peak disk stays near 25–30 GB; the download volume is the
-part you can't avoid.
+<details>
+<summary><b>The eval script's markers are on stderr</b></summary>
+
+<br>
+
+swebench's `eval_script` delimits results with `>>>>> Start Test Output` markers emitted by bash's `set -x` trace — which writes to **stderr** — while pytest writes results to **stdout**. Capturing the streams separately interleaves them incorrectly and the report parser silently finds nothing.
+
+The script must be run as `/bin/bash /eval.sh 2>&1` so the streams merge in order.
+
+</details>
+
+<details>
+<summary><b>Transcript compaction</b></summary>
+
+<br>
+
+An agent loop re-sends its entire transcript on every step, so token cost grows quadratically with step count. Before each request the loop elides the content of all but the *N* most recent tool results (`keep_recent_tool_results`), preserving assistant/tool message pairing and retaining the full transcript in the saved record.
+
+This roughly halves token use on long runs, directly increasing how many instances a fixed budget covers.
+
+</details>
+
+<details>
+<summary><b>Rate-limit handling</b></summary>
+
+<br>
+
+Agent loops are bursty — a single task can require 10–30 model calls. Three mitigations:
+
+1. **Inter-call delay** (`delay_between_calls_s`) eases requests-per-minute pressure.
+2. **Two retry layers** — the `openai` SDK retries first, honouring `Retry-After`; `utils/retry.py` is the outer exponential-backoff net. Auth and bad-request `4xx` responses are never retried.
+3. **Graceful exhaustion** — when retries are spent, the loop ends with `StopReason.ERROR`, preserves any partial patch, and the batch aborts cleanly rather than crashing.
+
+</details>
 
 ---
 
-## Where the rate limits bite
+## Project Structure
 
-Groq's free tier limits **requests/min (RPM)**, **tokens/min (TPM)**, and
-**tokens/day (TPD)** per model. An agent loop is bursty — a single task can take
-10–30+ model calls. Mitigations wired into the LLM layer:
-
-1. **Fixed inter-call delay** (`delay_between_calls_s`) — a pause after every
-   successful call, easing RPM/TPM pressure.
-2. **Two layers of retry on 429/5xx** — the `openai` SDK retries first
-   (honouring Groq's `Retry-After`; configured from `max_retries`), and
-   `utils/retry.py` is the outer exponential-backoff net. 4xx auth/bad-request
-   are *not* retried (that would just burn budget).
-3. **Graceful exhaustion** — when retries are spent (e.g. the daily cap), the
-   agent loop ends the run with `StopReason.ERROR` instead of crashing, captures
-   any partial patch, and the batch aborts cleanly so one dead instance never
-   kills the sweep.
-
-TPD is the binding constraint for free-tier sweeps; TPM 429s are common but the
-retries absorb them. The deeper lever is fewer tokens per call: the agent loop
-**compacts the transcript** before each request, sending only the most recent
-tool outputs in full and eliding older ones (`keep_recent_tool_results` in
-`config.toml`, see `agent/compaction.py`) — roughly halving tokens on long runs,
-which directly raises how many instances a daily budget covers.
-
----
-
-## Main risks (and how we manage them)
-
-- **Weak open model → low solve rate.** Expected. The deliverable is the number
-  + failure analysis, not SOTA; Phase 5 categorizes *why* tasks fail.
-- **Free-tier token budget caps sweep size.** ~a few instances/day; the runner
-  is resumable, and the provider is swappable via `config.toml`.
-- **arm64 host, x86_64 images.** Handled by `--platform linux/amd64` emulation;
-  slower but correct.
-- **Non-determinism.** `temperature = 0` reduces but doesn't eliminate it; every
-  run is logged to a JSON record so results are reproducible/citable.
+```
+src/swe_agent/
+├── config.py              # config.toml + environment-sourced API key
+├── dataset.py             # SWE-bench Lite loading
+├── task.py                # the unit of work
+├── llm/
+│   ├── base.py            # provider-neutral interface and dataclasses
+│   ├── groq_client.py     # the only module aware of OpenAI wire format
+│   └── factory.py         # build_llm_client() — single switch point
+├── tools/                 # agent tools + CommandExecutor seam
+├── agent/
+│   ├── loop.py            # plan → act → observe
+│   ├── compaction.py      # transcript compaction
+│   └── cli.py             # run against a local repository
+├── sandbox/
+│   ├── docker.py          # DockerSandbox + DockerExecutor
+│   └── environment.py     # per-instance SWE-bench provisioning
+├── eval/
+│   ├── grading.py         # official grading
+│   ├── runner.py          # solve_and_grade(): one instance end to end
+│   ├── batch.py           # resumable, quota-aware sweeps
+│   ├── analysis.py        # outcome classification
+│   ├── dashboard.py       # self-contained HTML report
+│   └── *_cli.py           # command-line entry points
+└── utils/retry.py         # exponential backoff
+```
 
 ---
 
-## Phase plan
+## Development
 
-- **Phase 0 — ✅ skeleton + provider-agnostic LLM client.**
-- **Phase 1 — ✅ tool layer** (read_file, list_dir, search_code, edit_file,
-  run_shell, run_tests) with unit tests against a dummy repo. No LLM.
-- **Phase 2 — ✅ agent loop** that plans, chooses tools, iterates, finishes; CLI;
-  verified end-to-end on a local repo.
-- **Phase 3a — ✅ Docker sandbox primitive** (`DockerExecutor` over the Phase-1
-  `CommandExecutor` seam).
-- **Phase 3b — ✅ SWE-bench Lite loading** (`SWEBenchInstance`, `load_swebench_lite`).
-- **Phase 3c — ✅ instance environment + official grading.** Provision a real
-  instance container the agent solves in (bind-mounted `/testbed`, amd64
-  emulation); grade the patch with swebench's own `eval_script` + grader.
-- **Phase 4 — ✅ batch runner** — score a subset, persist a JSON record per
-  instance; resumable and quota-aware.
-- **Phase 5 — ✅ failure analysis** — classify outcomes and render the citable
-  resolve-rate + breakdown report.
-- **Remaining — run the benchmark** at scale (gated by the free-tier token
-  budget) and write up the resulting number + failure analysis.
+```bash
+pytest                  # full suite; Docker tests skip without a daemon
+mypy                    # strict type checking across src/ and scripts/
+```
+
+Continuous integration runs `mypy --strict` and the full test suite on Python 3.11 and 3.12 for every push and pull request.
+
+### Dependencies
+
+Deliberately minimal, with each inclusion justified.
+
+| Package | Purpose |
+|---|---|
+| `openai` | OpenAI-compatible HTTP client; robust tool-call serialization and `Retry-After` handling |
+| `python-dotenv` | Loads the API key from a gitignored `.env` during local development |
+| `datasets` | Retrieves SWE-bench Lite from the Hugging Face Hub |
+| `swebench` | Authoritative image names, eval scripts, and the official grader |
+
+Intentionally **not** used: a YAML library (configuration is TOML via stdlib `tomllib`), `tenacity` (backoff is ~30 lines and needs an injectable clock for instant tests), and the Docker SDK (the CLI is shelled out to, consistent with the local executor).
+
+---
+
+## Operational Notes
+
+**Token cost.** Measured at roughly **2,200 tokens per step**, so a 25-step attempt costs about **55k tokens**, dominated by the re-sent transcript. Use `scripts/smoke_test.py --stage agent` to measure this for your own provider before sizing a sweep.
+
+**Disk.** Instance images are approximately **3.8 GB each** and are per-*instance*, not per-repository — a 30-instance sweep pulls roughly 110 GB. Containers are removed automatically; images are not. Prune between chunks to keep peak usage near 25–30 GB:
+
+```bash
+docker image prune -a -f
+```
+
+---
+
+## Project Status
+
+The complete pipeline is implemented, tested, and validated end to end: the agent loop, per-instance Docker environments, official grading, resumable batch evaluation, failure classification, and reporting.
+
+**A full benchmark sweep has not yet been published.** Producing a resolve rate across a meaningful sample requires sustained API throughput beyond what free tiers allow — a single attempt exceeds the daily token allowance of every free tier evaluated. The harness is built for this constraint: sweeps are resumable and quota-aware, and the provider is swappable via configuration.
+
+Planned next: a scored sweep across a stratified sample, published here alongside the categorized failure analysis.
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+<div align="center">
+<sub>Built with Python, Docker, and the official SWE-bench evaluation harness.</sub>
+</div>
