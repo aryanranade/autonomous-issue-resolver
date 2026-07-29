@@ -7,6 +7,7 @@ small ``python:3.11-slim`` image.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -61,14 +62,23 @@ def test_timeout_is_reported(sandbox: DockerSandbox) -> None:
     assert result.exit_code == 124
 
 
-def test_isolation_writes_dont_touch_host(sandbox: DockerSandbox, tmp_path: Path) -> None:
-    # Writing inside the container must not create anything on the host.
-    sentinel = "/root/only_in_container.txt"
+def test_isolation_writes_dont_touch_host(sandbox: DockerSandbox) -> None:
+    """A write inside the container must not appear on the host at the same path.
+
+    Uses a unique name under /tmp rather than /root: /tmp is readable on every
+    host (stat'ing /root raises PermissionError on Linux CI runners), and the
+    random name means a pre-existing file can't make this pass by accident.
+    """
+    sentinel = f"/tmp/only_in_container_{uuid.uuid4().hex}.txt"
+
+    assert not Path(sentinel).exists(), "host path must be clean before the write"
+
     sandbox.exec(f"echo hi > {sentinel}")
+
+    # Present inside the container...
     assert sandbox.exec(f"cat {sentinel}").stdout.strip() == "hi"
-    assert not (Path("/root") / "only_in_container.txt").exists() or True  # host /root differs
-    # The decisive check: the file lives in the container, not the host tmp.
-    assert not (tmp_path / "only_in_container.txt").exists()
+    # ...and still absent on the host: that's the isolation guarantee.
+    assert not Path(sentinel).exists()
 
 
 def test_context_manager_removes_container() -> None:
