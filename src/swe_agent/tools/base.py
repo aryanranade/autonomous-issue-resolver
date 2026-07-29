@@ -72,6 +72,13 @@ class ToolContext:
     # inside a SWE-bench container it's "python" (the activated conda env), since
     # the host's interpreter path doesn't exist there.
     python_executable: str = sys.executable
+    # Base command run_tests uses, WITHOUT any target appended. None means "fall
+    # back to pytest via python_executable" (the right default for an arbitrary
+    # local repo). SWE-bench repos each have their own runner — django uses
+    # ./tests/runtests.py, sympy bin/test, sphinx tox — so the environment sets
+    # this from the official spec rather than assuming pytest. See
+    # SWEBenchEnvironment.tool_context().
+    test_command: str | None = None
 
 
 class Tool(ABC):

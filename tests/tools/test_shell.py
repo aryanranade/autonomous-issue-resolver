@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from swe_agent.tools.base import ToolContext
 from swe_agent.tools.filesystem import EditFile
+from dataclasses import replace
+
+from swe_agent.tools.base import ExecResult
 from swe_agent.tools.shell import LocalExecutor, RunShell, RunTests
 
 
@@ -66,3 +69,52 @@ def test_run_tests_targeted(tool_ctx: ToolContext) -> None:
     res = RunTests().run(tool_ctx, {"target": "tests/test_ops.py::test_add"})
     assert res.ok
     assert "exit_code: 0" in res.output
+
+
+def test_run_tests_uses_the_repos_own_runner_when_supplied(
+    tool_ctx: ToolContext,
+) -> None:
+    """69% of SWE-bench Lite isn't pytest, so an explicit runner must win.
+
+    Guards the regression where run_tests hardcoded `python -m pytest`, which
+    silently broke the agent's verify step on django/sympy/sphinx.
+    """
+    recorded: list[str] = []
+
+    class Recorder:
+        def run(self, command: str, *, cwd: object, timeout: int) -> object:
+            recorded.append(command)
+            return ExecResult(exit_code=0, stdout="ok", stderr="", timed_out=False)
+
+    ctx = replace(tool_ctx, executor=Recorder(), test_command="bin/test -C --verbose")
+    RunTests().run(ctx, {})
+
+    assert recorded == ["bin/test -C --verbose"]
+    assert "pytest" not in recorded[0]
+
+
+def test_run_tests_appends_target_to_the_repo_runner(tool_ctx: ToolContext) -> None:
+    recorded: list[str] = []
+
+    class Recorder:
+        def run(self, command: str, *, cwd: object, timeout: int) -> object:
+            recorded.append(command)
+            return ExecResult(exit_code=0, stdout="ok", stderr="", timed_out=False)
+
+    ctx = replace(
+        tool_ctx,
+        executor=Recorder(),
+        test_command="./tests/runtests.py --settings=test_sqlite",
+    )
+    RunTests().run(ctx, {"target": "test_utils.tests"})
+
+    assert recorded == ["./tests/runtests.py --settings=test_sqlite test_utils.tests"]
+
+
+def test_run_tests_falls_back_to_pytest_for_a_plain_local_repo(
+    tool_ctx: ToolContext,
+) -> None:
+    """agent.cli points at arbitrary repos with no spec — pytest stays the default."""
+    assert tool_ctx.test_command is None
+    res = RunTests().run(tool_ctx, {})
+    assert res.ok

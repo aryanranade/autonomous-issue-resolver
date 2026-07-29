@@ -77,6 +77,28 @@ def make_spec(instance: SWEBenchInstance) -> Any:
     return make_test_spec(_instance_to_row(instance), namespace="swebench")
 
 
+def repo_test_command(instance: SWEBenchInstance) -> str | None:
+    """The test command this repo/version actually uses, per swebench.
+
+    Only 93 of SWE-bench Lite's 300 instances run pytest. django (114) uses
+    ``./tests/runtests.py``, sympy (77) uses ``bin/test``, and sphinx (16) uses
+    ``tox`` — so hardcoding pytest silently breaks the agent's verify and
+    regression-checking step on 69% of the benchmark. We read the command from
+    swebench's own repo/version table, the same source the official grader uses,
+    so the agent tests exactly the way it will be graded.
+
+    Returns None if the repo/version isn't in the table, which leaves
+    :class:`ToolContext` on its pytest default rather than guessing.
+    """
+    from swebench.harness.constants import (  # type: ignore[import-untyped]
+        MAP_REPO_VERSION_TO_SPECS,
+    )
+
+    spec = MAP_REPO_VERSION_TO_SPECS.get(instance.repo, {}).get(instance.version, {})
+    cmd = spec.get("test_cmd")
+    return str(cmd) if cmd else None
+
+
 def instance_image_ref(instance: SWEBenchInstance) -> str:
     """Return the pullable Docker image for an instance (x86_64, swebench namespace).
 
@@ -207,8 +229,11 @@ class SWEBenchEnvironment:
         """A ToolContext wired to this environment: host root + docker executor.
 
         ``python_executable="python"`` so run_tests invokes the activated conda
-        env inside the container rather than this host's interpreter.
+        env inside the container rather than this host's interpreter, and
+        ``test_command`` comes from the official spec so the agent verifies with
+        the runner the repo actually uses (see :func:`repo_test_command`).
         """
+        kwargs.setdefault("test_command", repo_test_command(self.instance))
         return ToolContext(
             root=self.root,
             executor=self.executor,

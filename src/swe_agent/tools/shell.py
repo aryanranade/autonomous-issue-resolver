@@ -108,7 +108,7 @@ class RunShell(Tool):
 
 
 class RunTests(Tool):
-    """Run the test suite (pytest by default) and return the result."""
+    """Run the project's test suite with the runner that repo actually uses."""
 
     name = "run_tests"
 
@@ -116,16 +116,16 @@ class RunTests(Tool):
         return ToolSpec(
             name=self.name,
             description=(
-                "Run the project's tests with pytest and return exit code and "
-                "output. Optionally target a specific test file, directory, or "
-                "node id to run a focused subset."
+                "Run the project's tests and return exit code and output. "
+                "Optionally target a specific test file, directory, or node id "
+                "to run a focused subset."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "target": {
                         "type": "string",
-                        "description": "Optional pytest target (path or node id). "
+                        "description": "Optional test target (path or node id). "
                         "Omit to run the whole suite.",
                     },
                     "timeout": {
@@ -143,10 +143,17 @@ class RunTests(Tool):
         if not isinstance(target, str):
             return ToolResult.error("argument 'target' must be a string")
         timeout = min(int(args.get("timeout", 300)), _MAX_TIMEOUT_S)
-        # Use the configured interpreter so the right venv/pytest is selected.
-        # On the host this is sys.executable; in a container it's the activated
-        # conda env's "python" (see ToolContext.python_executable).
-        command = f"{ctx.python_executable} -m pytest -q"
+        # Prefer the repo's own runner when the environment supplied one: 69% of
+        # SWE-bench Lite (django, sympy, sphinx) does NOT use pytest, so assuming
+        # it would break the agent's verify/regression step on most instances.
+        # Falling back to pytest keeps plain local repos (agent.cli) working.
+        if ctx.test_command:
+            command = ctx.test_command
+        else:
+            # Use the configured interpreter so the right venv/pytest is selected.
+            # On the host this is sys.executable; in a container it's the
+            # activated conda env's "python" (see ToolContext.python_executable).
+            command = f"{ctx.python_executable} -m pytest -q"
         if target.strip():
             command += f" {target.strip()}"
         result = ctx.executor.run(command, cwd=ctx.root, timeout=timeout)

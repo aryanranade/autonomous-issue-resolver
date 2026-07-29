@@ -73,3 +73,39 @@ def test_provision_flask_environment_when_image_present() -> None:
             timeout=120,
         )
         assert res.exit_code == 0, res.stderr
+
+
+def test_repo_test_command_matches_the_official_runner_per_repo() -> None:
+    """Only 93/300 SWE-bench Lite instances use pytest; the rest must not.
+
+    django -> ./tests/runtests.py, sympy -> bin/test, sphinx -> tox. Reading the
+    command from swebench's own table keeps the agent's verify step aligned with
+    how the instance is actually graded.
+    """
+    from swe_agent.dataset import SWEBenchInstance
+    from swe_agent.sandbox.environment import repo_test_command
+
+    def inst(repo: str, version: str) -> SWEBenchInstance:
+        return SWEBenchInstance(
+            instance_id="x", repo=repo, base_commit="c", problem_statement="p",
+            patch="", test_patch="", fail_to_pass=[], pass_to_pass=[],
+            environment_setup_commit="c", version=version,
+        )
+
+    assert "runtests.py" in (repo_test_command(inst("django/django", "3.0")) or "")
+    assert "bin/test" in (repo_test_command(inst("sympy/sympy", "1.0")) or "")
+    assert "tox" in (repo_test_command(inst("sphinx-doc/sphinx", "4.1")) or "")
+    assert "pytest" in (repo_test_command(inst("pallets/flask", "2.0")) or "")
+
+
+def test_repo_test_command_returns_none_for_unknown_repo() -> None:
+    """Unknown repo/version must fall back to the pytest default, not guess."""
+    from swe_agent.dataset import SWEBenchInstance
+    from swe_agent.sandbox.environment import repo_test_command
+
+    unknown = SWEBenchInstance(
+        instance_id="x", repo="not/a-real-repo", base_commit="c",
+        problem_statement="p", patch="", test_patch="", fail_to_pass=[],
+        pass_to_pass=[], environment_setup_commit="c", version="9.9",
+    )
+    assert repo_test_command(unknown) is None

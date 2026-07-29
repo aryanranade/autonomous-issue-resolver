@@ -188,7 +188,8 @@ The benchmark also needs **Docker**. This project was developed on an Apple
 Silicon (arm64) Mac: SWE-bench's prebuilt instance images are published for
 **x86_64 only**, so we run them under emulation (`docker run --platform
 linux/amd64`). That works out of the box with Docker Desktop / colima; the first
-run of each instance pulls a ~1 GB image.
+run of each instance pulls a **~3.8 GB** image (measured across django, sympy,
+sphinx, and flask).
 
 ### Smoke test — verify the whole pipeline cheaply
 
@@ -234,6 +235,14 @@ The benchmark runs each task inside its official SWE-bench Docker image. The
 agent edits a bind-mounted checkout of the repo at `/testbed` (so its host-side
 file edits and the container's test runs share files), then the resulting patch
 is graded in a **fresh** container using swebench's own `eval_script` + grader.
+
+**Per-repo test runners.** Only **93 of the 300** SWE-bench Lite instances use
+pytest. django (114) runs `./tests/runtests.py`, sympy (77) runs `bin/test`, and
+sphinx (16) runs `tox`. The agent's `run_tests` tool therefore takes its command
+from swebench's own repo/version table (`repo_test_command()`) rather than
+assuming pytest — so the agent verifies its fix and checks for regressions using
+the same runner the official grader will use. Outside SWE-bench (`agent.cli` on
+a local repo) it falls back to pytest.
 
 **One instance, end to end:**
 ```bash
@@ -286,9 +295,17 @@ different provider via `config.toml`) lifts the ceiling. Use
 `scripts/smoke_test.py` to measure the per-step cost of *your* provider before
 committing to a sweep.
 
-Disk is the other cost: each instance pulls a ~1 GB image. A batch spanning many
-repos can pull several GB; prune unused images with `docker image prune` between
-large runs.
+Disk is the other cost, and it's the bigger one. Instance images are **~3.8 GB
+each**, and they're per-*instance*, not per-repo — so a 30-instance sweep pulls
+roughly **110 GB** and the full 300 would be over a terabyte. Containers are
+removed after each instance, but the images are not, so prune between chunks:
+
+```bash
+docker image prune -a -f     # between chunks of ~25 instances
+```
+
+Run in chunks and the peak disk stays near 25–30 GB; the download volume is the
+part you can't avoid.
 
 ---
 
